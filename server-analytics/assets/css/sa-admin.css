@@ -1,0 +1,29 @@
+.sa-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: end;
+  margin: 12px 0 16px;
+}
+
+.sa-filters .sa-field {
+  min-width: 180px;
+}
+
+.sa-filters label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.sa-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 12px 0;
+}
+
+.sa-actions .button {
+  white-space: nowrap;
+}
+
