@@ -5,7 +5,7 @@ Tags: analytics, pageviews, engagement, statistics, tracking
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.0.0
+Stable tag: 1.1.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -19,8 +19,11 @@ Server Analytics is a lightweight, privacy-focused analytics plugin that collect
 
 * Track pageviews, referrers, and link clicks
 * Measure time on page and scroll depth
+* **Custom conversion tracking** - Track button clicks by element ID
 * Filter and sort analytics in a dashboard
 * Export data to CSV or PDF
+* Exclude specific post types or URLs from tracking
+* Whitelist mode to only track specific URLs
 * GDPR-friendly with IP anonymization (enabled by default)
 * Automatic data retention and cleanup
 * Rate limiting to prevent abuse
@@ -71,11 +74,19 @@ IP addresses are already anonymized by default. The anonymized IP helps with bas
 
 = How do I change the data retention period? =
 
-The default retention period is 90 days. You can modify this using the filter:
+Go to Dashboard → Server Analytics → Settings and adjust the "Data Retention" setting. The default is 90 days. Set to 0 to keep data indefinitely (not recommended for GDPR compliance).
 
-`add_filter('sa_data_retention_days', fn() => 30); // Keep data for 30 days`
+= How do I track button clicks as conversions? =
 
-Or set it to 0 to keep data indefinitely (not recommended for GDPR compliance).
+Go to Dashboard → Server Analytics → Settings and scroll to "Conversion Tracking". Add the HTML ID of buttons you want to track. For example, if your button is `<button id="buy-now">`, enter `buy-now` as the Button ID with a friendly name like "Purchase Button".
+
+= Can I exclude certain pages from tracking? =
+
+Yes! Go to Settings and you can:
+
+* Exclude specific post types (e.g., don't track attachment pages)
+* Exclude URLs matching patterns (e.g., `/cart/*` to exclude cart pages)
+* Use "whitelist mode" to only track specific URLs
 
 = What capabilities are required to view analytics? =
 
@@ -89,6 +100,16 @@ By default, users with the `edit_pages` capability (Editors and above) can view 
 
 == Changelog ==
 
+= 1.1.0 =
+* Added custom conversion tracking for buttons by element ID
+* Added settings page for tracking configuration
+* Added option to exclude specific post types from tracking
+* Added URL exclusion patterns
+* Added whitelist mode to only track specific URLs
+* Added bulk delete and date range delete options
+* Added delete all data functionality
+* Improved security hardening for all inputs
+
 = 1.0.0 =
 * Initial release
 * Pageview and engagement tracking
@@ -101,6 +122,9 @@ By default, users with the `edit_pages` capability (Editors and above) can view 
 * Privacy policy integration
 
 == Upgrade Notice ==
+
+= 1.1.0 =
+New features: Conversion tracking, URL filtering, and data management tools. Update recommended for all users.
 
 = 1.0.0 =
 Initial release of Server Analytics.

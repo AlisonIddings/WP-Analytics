@@ -3,7 +3,7 @@
  * Plugin Name: Server Analytics
  * Plugin URI: https://example.com/server-analytics
  * Description: Collects server-side analytics for pageviews, referrers, link clicks, time on page, and scroll depth. Includes a dashboard report with filtering, sorting, and CSV/PDF exports. GDPR-friendly with IP anonymization option.
- * Version: 1.0.0
+ * Version: 1.1.0
  * Requires at least: 6.0
  * Requires PHP: 7.4
  * Author: Your Name
@@ -20,7 +20,7 @@ if (!defined('ABSPATH')) {
 	exit;
 }
 
-define('SA_PLUGIN_VERSION', '1.0.0');
+define('SA_PLUGIN_VERSION', '1.1.0');
 define('SA_PLUGIN_FILE', __FILE__);
 define('SA_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('SA_PLUGIN_URL', plugin_dir_url(__FILE__));
@@ -72,6 +72,13 @@ add_action('sa_daily_cleanup', array('SA_DB', 'cleanup_old_data'));
 add_action(
 	'plugins_loaded',
 	static function (): void {
+		// Load plugin text domain for translations
+		load_plugin_textdomain(
+			'server-analytics',
+			false,
+			dirname(plugin_basename(SA_PLUGIN_FILE)) . '/languages'
+		);
+
 		SA_REST::init();
 
 		// Only initialize admin on admin pages to save resources
@@ -95,7 +102,7 @@ add_action(
 			'<h2>%s</h2><p>%s</p><p>%s</p><p>%s</p>',
 			__('Analytics Data Collection', 'server-analytics'),
 			__('This website uses Server Analytics to collect anonymous usage data to improve user experience. The following data may be collected:', 'server-analytics'),
-			__('- Page URLs visited<br>- Referrer URLs<br>- Links clicked<br>- Time spent on pages<br>- Scroll depth<br>- IP address (anonymized by default)<br>- Browser user agent', 'server-analytics'),
+			__('- Page URLs visited<br>- Referrer URLs<br>- Links clicked<br>- Button clicks (for conversion tracking)<br>- Time spent on pages<br>- Scroll depth<br>- IP address (anonymized by default)<br>- Browser user agent', 'server-analytics'),
 			sprintf(
 				/* translators: %d: number of days */
 				__('This data is stored locally on this website and automatically deleted after %d days. No data is shared with third parties.', 'server-analytics'),
