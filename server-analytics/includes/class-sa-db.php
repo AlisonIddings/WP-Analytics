@@ -12,6 +12,10 @@ final class SA_DB {
 	private const OPTION_TOKEN = 'sa_public_token';
 	private const OPTION_ANONYMIZE_IP = 'sa_anonymize_ip';
 	private const OPTION_DATA_RETENTION = 'sa_data_retention_days';
+	private const OPTION_TRACKING_MODE = 'sa_tracking_mode';
+	private const OPTION_EXCLUDED_POST_TYPES = 'sa_excluded_post_types';
+	private const OPTION_EXCLUDED_URLS = 'sa_excluded_urls';
+	private const OPTION_INCLUDED_URLS = 'sa_included_urls';
 	private const DB_VERSION = '1.1.0'; // Bumped for ip_address index
 
 	/**
@@ -41,6 +45,10 @@ final class SA_DB {
 		delete_option(self::OPTION_TOKEN);
 		delete_option(self::OPTION_ANONYMIZE_IP);
 		delete_option(self::OPTION_DATA_RETENTION);
+		delete_option(self::OPTION_TRACKING_MODE);
+		delete_option(self::OPTION_EXCLUDED_POST_TYPES);
+		delete_option(self::OPTION_EXCLUDED_URLS);
+		delete_option(self::OPTION_INCLUDED_URLS);
 	}
 
 	/**
@@ -92,6 +100,205 @@ final class SA_DB {
 	 */
 	public static function set_data_retention_days(int $days): void {
 		update_option(self::OPTION_DATA_RETENTION, max(0, $days), true);
+	}
+
+	/**
+	 * Get tracking mode: 'all' (track all, exclude specified) or 'whitelist' (only track specified).
+	 */
+	public static function get_tracking_mode(): string {
+		if (isset(self::$cache['tracking_mode'])) {
+			return self::$cache['tracking_mode'];
+		}
+
+		$mode = get_option(self::OPTION_TRACKING_MODE, 'all');
+		$mode = in_array($mode, array('all', 'whitelist'), true) ? $mode : 'all';
+		self::$cache['tracking_mode'] = $mode;
+
+		return $mode;
+	}
+
+	/**
+	 * Set tracking mode.
+	 */
+	public static function set_tracking_mode(string $mode): void {
+		$mode = in_array($mode, array('all', 'whitelist'), true) ? $mode : 'all';
+		update_option(self::OPTION_TRACKING_MODE, $mode, true);
+		self::$cache['tracking_mode'] = $mode;
+	}
+
+	/**
+	 * Get excluded post types.
+	 *
+	 * @return string[]
+	 */
+	public static function get_excluded_post_types(): array {
+		if (isset(self::$cache['excluded_post_types'])) {
+			return self::$cache['excluded_post_types'];
+		}
+
+		$types = get_option(self::OPTION_EXCLUDED_POST_TYPES, array());
+		$types = is_array($types) ? array_map('sanitize_key', $types) : array();
+		self::$cache['excluded_post_types'] = $types;
+
+		return $types;
+	}
+
+	/**
+	 * Set excluded post types.
+	 *
+	 * @param string[] $types
+	 */
+	public static function set_excluded_post_types(array $types): void {
+		$types = array_map('sanitize_key', $types);
+		$types = array_filter($types);
+		update_option(self::OPTION_EXCLUDED_POST_TYPES, $types, true);
+		self::$cache['excluded_post_types'] = $types;
+	}
+
+	/**
+	 * Get excluded URL patterns (one per line).
+	 *
+	 * @return string[]
+	 */
+	public static function get_excluded_urls(): array {
+		if (isset(self::$cache['excluded_urls'])) {
+			return self::$cache['excluded_urls'];
+		}
+
+		$urls = get_option(self::OPTION_EXCLUDED_URLS, '');
+		$urls = is_string($urls) ? self::parse_url_patterns($urls) : array();
+		self::$cache['excluded_urls'] = $urls;
+
+		return $urls;
+	}
+
+	/**
+	 * Set excluded URL patterns.
+	 */
+	public static function set_excluded_urls(string $urls): void {
+		$urls = sanitize_textarea_field($urls);
+		update_option(self::OPTION_EXCLUDED_URLS, $urls, true);
+		unset(self::$cache['excluded_urls']);
+	}
+
+	/**
+	 * Get excluded URLs as raw string for textarea.
+	 */
+	public static function get_excluded_urls_raw(): string {
+		return get_option(self::OPTION_EXCLUDED_URLS, '');
+	}
+
+	/**
+	 * Get included URL patterns (whitelist mode).
+	 *
+	 * @return string[]
+	 */
+	public static function get_included_urls(): array {
+		if (isset(self::$cache['included_urls'])) {
+			return self::$cache['included_urls'];
+		}
+
+		$urls = get_option(self::OPTION_INCLUDED_URLS, '');
+		$urls = is_string($urls) ? self::parse_url_patterns($urls) : array();
+		self::$cache['included_urls'] = $urls;
+
+		return $urls;
+	}
+
+	/**
+	 * Set included URL patterns.
+	 */
+	public static function set_included_urls(string $urls): void {
+		$urls = sanitize_textarea_field($urls);
+		update_option(self::OPTION_INCLUDED_URLS, $urls, true);
+		unset(self::$cache['included_urls']);
+	}
+
+	/**
+	 * Get included URLs as raw string for textarea.
+	 */
+	public static function get_included_urls_raw(): string {
+		return get_option(self::OPTION_INCLUDED_URLS, '');
+	}
+
+	/**
+	 * Parse URL patterns from textarea (one per line).
+	 *
+	 * @return string[]
+	 */
+	private static function parse_url_patterns(string $text): array {
+		$lines = explode("\n", $text);
+		$patterns = array();
+
+		foreach ($lines as $line) {
+			$line = trim($line);
+			if ($line !== '' && strlen($line) <= 500) {
+				$patterns[] = $line;
+			}
+		}
+
+		return $patterns;
+	}
+
+	/**
+	 * Check if a URL should be tracked based on current settings.
+	 */
+	public static function should_track_url(string $url): bool {
+		$mode = self::get_tracking_mode();
+
+		if ($mode === 'whitelist') {
+			// Only track if URL matches one of the included patterns
+			$included = self::get_included_urls();
+			if (empty($included)) {
+				return false; // Whitelist mode with no patterns = track nothing
+			}
+			return self::url_matches_patterns($url, $included);
+		}
+
+		// Default mode: track all except excluded
+		$excluded = self::get_excluded_urls();
+		if (empty($excluded)) {
+			return true; // No exclusions = track everything
+		}
+		return !self::url_matches_patterns($url, $excluded);
+	}
+
+	/**
+	 * Check if URL matches any of the patterns.
+	 * Patterns can use * as wildcard.
+	 *
+	 * @param string[] $patterns
+	 */
+	private static function url_matches_patterns(string $url, array $patterns): bool {
+		foreach ($patterns as $pattern) {
+			if (self::url_matches_pattern($url, $pattern)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Check if URL matches a single pattern.
+	 * Supports * wildcard for matching any characters.
+	 */
+	private static function url_matches_pattern(string $url, string $pattern): bool {
+		// Exact match
+		if ($url === $pattern) {
+			return true;
+		}
+
+		// Check if pattern contains wildcards
+		if (strpos($pattern, '*') !== false) {
+			// Convert pattern to regex
+			$regex = preg_quote($pattern, '/');
+			$regex = str_replace('\\*', '.*', $regex);
+			$regex = '/^' . $regex . '$/i';
+			return (bool) preg_match($regex, $url);
+		}
+
+		// Check if URL contains the pattern (partial match)
+		return strpos($url, $pattern) !== false;
 	}
 
 	/**

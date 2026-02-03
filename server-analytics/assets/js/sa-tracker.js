@@ -4,6 +4,63 @@
   var settings = window.saTrackerSettings || {};
   if (!settings.restUrl || !settings.token) return;
 
+  /**
+   * Check if a URL matches a pattern (supports * wildcard).
+   */
+  function urlMatchesPattern(url, pattern) {
+    if (url === pattern) return true;
+    
+    if (pattern.indexOf("*") !== -1) {
+      // Convert pattern to regex
+      var regex = pattern
+        .replace(/[.+?^${}()|[\]\\]/g, "\\$&") // Escape special chars except *
+        .replace(/\*/g, ".*"); // Convert * to .*
+      return new RegExp("^" + regex + "$", "i").test(url);
+    }
+    
+    // Partial match
+    return url.indexOf(pattern) !== -1;
+  }
+
+  /**
+   * Check if URL matches any pattern in the array.
+   */
+  function urlMatchesAnyPattern(url, patterns) {
+    if (!patterns || !patterns.length) return false;
+    for (var i = 0; i < patterns.length; i++) {
+      if (urlMatchesPattern(url, patterns[i])) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Check if current page should be tracked based on URL settings.
+   */
+  function shouldTrackUrl(url) {
+    var mode = settings.trackingMode || "all";
+    
+    if (mode === "whitelist") {
+      // Only track if URL matches included patterns
+      var included = settings.includedUrls || [];
+      if (!included.length) return false; // No patterns = track nothing
+      return urlMatchesAnyPattern(url, included);
+    }
+    
+    // Default: track all except excluded
+    var excluded = settings.excludedUrls || [];
+    if (!excluded.length) return true; // No exclusions = track everything
+    return !urlMatchesAnyPattern(url, excluded);
+  }
+
+  // Check if current URL should be tracked
+  var pageUrl = String(window.location.href || "");
+  var pathname = String(window.location.pathname || "");
+  
+  // Check both full URL and pathname
+  if (!shouldTrackUrl(pageUrl) && !shouldTrackUrl(pathname)) {
+    return; // Don't track this page
+  }
+
   function getSessionId() {
     try {
       var key = "sa_session_id";
@@ -28,7 +85,7 @@
   }
 
   var sessionId = getSessionId();
-  var pageUrl = String(window.location.href || "");
+  // pageUrl already defined above for URL filtering
   var referrer = String(document.referrer || "");
   var startMs = Date.now();
   var maxScroll = 0;

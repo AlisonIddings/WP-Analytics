@@ -22,6 +22,9 @@ final class SA_Admin {
 		// Delete actions
 		add_action('admin_post_sa_delete_by_date', array(__CLASS__, 'handle_delete_by_date'));
 		add_action('admin_post_sa_delete_all', array(__CLASS__, 'handle_delete_all'));
+
+		// Settings action
+		add_action('admin_post_sa_save_settings', array(__CLASS__, 'handle_save_settings'));
 	}
 
 	public static function register_menu(): void {
@@ -33,6 +36,24 @@ final class SA_Admin {
 			array(__CLASS__, 'render_page'),
 			'dashicons-chart-area',
 			65
+		);
+
+		add_submenu_page(
+			self::MENU_SLUG,
+			__('Analytics Dashboard', 'server-analytics'),
+			__('Dashboard', 'server-analytics'),
+			sa_view_analytics_capability(),
+			self::MENU_SLUG,
+			array(__CLASS__, 'render_page')
+		);
+
+		add_submenu_page(
+			self::MENU_SLUG,
+			__('Settings', 'server-analytics'),
+			__('Settings', 'server-analytics'),
+			'manage_options', // Settings require admin capability
+			self::MENU_SLUG . '-settings',
+			array(__CLASS__, 'render_settings_page')
 		);
 	}
 
@@ -368,6 +389,190 @@ final class SA_Admin {
 		), 30);
 
 		wp_safe_redirect(admin_url('admin.php?page=' . self::MENU_SLUG));
+		exit;
+	}
+
+	/**
+	 * Render the settings page.
+	 */
+	public static function render_settings_page(): void {
+		if (!current_user_can('manage_options')) {
+			wp_die(esc_html__('You do not have permission to access this page.', 'server-analytics'));
+		}
+
+		// Get current settings
+		$tracking_mode = SA_DB::get_tracking_mode();
+		$excluded_post_types = SA_DB::get_excluded_post_types();
+		$excluded_urls = SA_DB::get_excluded_urls_raw();
+		$included_urls = SA_DB::get_included_urls_raw();
+		$anonymize_ip = SA_DB::is_ip_anonymization_enabled();
+		$retention_days = SA_DB::get_data_retention_days();
+
+		// Get all public post types
+		$post_types = get_post_types(array('public' => true), 'objects');
+
+		?>
+		<div class="wrap">
+			<h1><?php echo esc_html__('Server Analytics Settings', 'server-analytics'); ?></h1>
+
+			<?php self::render_admin_notices(); ?>
+
+			<form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+				<?php wp_nonce_field('sa_save_settings', 'sa_settings_nonce'); ?>
+				<input type="hidden" name="action" value="sa_save_settings" />
+
+				<h2><?php echo esc_html__('Tracking Settings', 'server-analytics'); ?></h2>
+
+				<table class="form-table" role="presentation">
+					<tr>
+						<th scope="row"><?php echo esc_html__('Tracking Mode', 'server-analytics'); ?></th>
+						<td>
+							<fieldset>
+								<label>
+									<input type="radio" name="tracking_mode" value="all" <?php checked($tracking_mode, 'all'); ?> />
+									<?php echo esc_html__('Track all pages (exclude specified)', 'server-analytics'); ?>
+								</label>
+								<br />
+								<label>
+									<input type="radio" name="tracking_mode" value="whitelist" <?php checked($tracking_mode, 'whitelist'); ?> />
+									<?php echo esc_html__('Only track specified pages (whitelist mode)', 'server-analytics'); ?>
+								</label>
+								<p class="description">
+									<?php echo esc_html__('Choose whether to track all pages with exclusions, or only track specific pages.', 'server-analytics'); ?>
+								</p>
+							</fieldset>
+						</td>
+					</tr>
+
+					<tr>
+						<th scope="row">
+							<label for="excluded_post_types"><?php echo esc_html__('Exclude Post Types', 'server-analytics'); ?></label>
+						</th>
+						<td>
+							<select name="excluded_post_types[]" id="excluded_post_types" multiple size="8" style="min-width: 300px; height: auto;">
+								<?php foreach ($post_types as $post_type) : ?>
+									<option value="<?php echo esc_attr($post_type->name); ?>" <?php selected(in_array($post_type->name, $excluded_post_types, true)); ?>>
+										<?php echo esc_html($post_type->labels->name . ' (' . $post_type->name . ')'); ?>
+									</option>
+								<?php endforeach; ?>
+							</select>
+							<p class="description">
+								<?php echo esc_html__('Hold Ctrl/Cmd to select multiple. Pages of these post types will not be tracked.', 'server-analytics'); ?>
+							</p>
+						</td>
+					</tr>
+
+					<tr>
+						<th scope="row">
+							<label for="excluded_urls"><?php echo esc_html__('Exclude URLs', 'server-analytics'); ?></label>
+						</th>
+						<td>
+							<textarea name="excluded_urls" id="excluded_urls" rows="6" cols="50" class="large-text code"><?php echo esc_textarea($excluded_urls); ?></textarea>
+							<p class="description">
+								<?php echo esc_html__('Enter one URL pattern per line. Use * as wildcard.', 'server-analytics'); ?><br />
+								<?php echo esc_html__('Examples:', 'server-analytics'); ?><br />
+								<code>/wp-admin/*</code> - <?php echo esc_html__('Excludes all admin pages', 'server-analytics'); ?><br />
+								<code>/cart/</code> - <?php echo esc_html__('Excludes URLs containing /cart/', 'server-analytics'); ?><br />
+								<code>*/checkout*</code> - <?php echo esc_html__('Excludes any URL with "checkout"', 'server-analytics'); ?>
+							</p>
+						</td>
+					</tr>
+
+					<tr>
+						<th scope="row">
+							<label for="included_urls"><?php echo esc_html__('Only Track URLs (Whitelist)', 'server-analytics'); ?></label>
+						</th>
+						<td>
+							<textarea name="included_urls" id="included_urls" rows="6" cols="50" class="large-text code"><?php echo esc_textarea($included_urls); ?></textarea>
+							<p class="description">
+								<?php echo esc_html__('Only used when "Whitelist mode" is selected above.', 'server-analytics'); ?><br />
+								<?php echo esc_html__('Enter one URL pattern per line. Use * as wildcard.', 'server-analytics'); ?><br />
+								<?php echo esc_html__('Examples:', 'server-analytics'); ?><br />
+								<code>/blog/*</code> - <?php echo esc_html__('Only track blog pages', 'server-analytics'); ?><br />
+								<code>/products/*</code> - <?php echo esc_html__('Only track product pages', 'server-analytics'); ?>
+							</p>
+						</td>
+					</tr>
+				</table>
+
+				<h2><?php echo esc_html__('Privacy Settings', 'server-analytics'); ?></h2>
+
+				<table class="form-table" role="presentation">
+					<tr>
+						<th scope="row"><?php echo esc_html__('IP Anonymization', 'server-analytics'); ?></th>
+						<td>
+							<label>
+								<input type="checkbox" name="anonymize_ip" value="1" <?php checked($anonymize_ip); ?> />
+								<?php echo esc_html__('Anonymize IP addresses (recommended for GDPR compliance)', 'server-analytics'); ?>
+							</label>
+							<p class="description">
+								<?php echo esc_html__('When enabled, the last octet of IPv4 addresses and last 80 bits of IPv6 addresses are removed.', 'server-analytics'); ?>
+							</p>
+						</td>
+					</tr>
+
+					<tr>
+						<th scope="row">
+							<label for="retention_days"><?php echo esc_html__('Data Retention', 'server-analytics'); ?></label>
+						</th>
+						<td>
+							<input type="number" name="retention_days" id="retention_days" value="<?php echo esc_attr($retention_days); ?>" min="0" max="3650" class="small-text" />
+							<?php echo esc_html__('days', 'server-analytics'); ?>
+							<p class="description">
+								<?php echo esc_html__('Automatically delete data older than this many days. Set to 0 to keep data indefinitely.', 'server-analytics'); ?>
+							</p>
+						</td>
+					</tr>
+				</table>
+
+				<?php submit_button(__('Save Settings', 'server-analytics')); ?>
+			</form>
+		</div>
+		<?php
+	}
+
+	/**
+	 * Handle settings form submission.
+	 */
+	public static function handle_save_settings(): void {
+		if (!current_user_can('manage_options')) {
+			wp_die(esc_html__('You do not have permission to change settings.', 'server-analytics'));
+		}
+
+		check_admin_referer('sa_save_settings', 'sa_settings_nonce');
+
+		// Tracking mode
+		$tracking_mode = isset($_POST['tracking_mode']) ? sanitize_key($_POST['tracking_mode']) : 'all';
+		SA_DB::set_tracking_mode($tracking_mode);
+
+		// Excluded post types
+		$excluded_post_types = isset($_POST['excluded_post_types']) && is_array($_POST['excluded_post_types'])
+			? array_map('sanitize_key', $_POST['excluded_post_types'])
+			: array();
+		SA_DB::set_excluded_post_types($excluded_post_types);
+
+		// Excluded URLs
+		$excluded_urls = isset($_POST['excluded_urls']) ? sanitize_textarea_field($_POST['excluded_urls']) : '';
+		SA_DB::set_excluded_urls($excluded_urls);
+
+		// Included URLs
+		$included_urls = isset($_POST['included_urls']) ? sanitize_textarea_field($_POST['included_urls']) : '';
+		SA_DB::set_included_urls($included_urls);
+
+		// IP anonymization
+		$anonymize_ip = isset($_POST['anonymize_ip']) && $_POST['anonymize_ip'] === '1';
+		SA_DB::set_ip_anonymization($anonymize_ip);
+
+		// Data retention
+		$retention_days = isset($_POST['retention_days']) ? absint($_POST['retention_days']) : 90;
+		SA_DB::set_data_retention_days($retention_days);
+
+		set_transient('sa_admin_notice', array(
+			'type'    => 'success',
+			'message' => __('Settings saved successfully.', 'server-analytics'),
+		), 30);
+
+		wp_safe_redirect(admin_url('admin.php?page=' . self::MENU_SLUG . '-settings'));
 		exit;
 	}
 

@@ -117,6 +117,15 @@ add_action(
 			return;
 		}
 
+		// Check if current post type is excluded
+		$excluded_post_types = SA_DB::get_excluded_post_types();
+		if (!empty($excluded_post_types)) {
+			$current_post_type = get_post_type();
+			if ($current_post_type && in_array($current_post_type, $excluded_post_types, true)) {
+				return; // Don't track this post type
+			}
+		}
+
 		$handle = 'sa-tracker';
 
 		// Register script with defer strategy for non-blocking load (WP 6.3+)
@@ -133,10 +142,20 @@ add_action(
 			$script_args
 		);
 
+		// Build settings including URL filtering rules
+		$tracking_mode = SA_DB::get_tracking_mode();
 		$settings = array(
-			'restUrl' => esc_url_raw(rest_url('server-analytics/v1')),
-			'token'   => SA_DB::get_public_token(),
+			'restUrl'      => esc_url_raw(rest_url('server-analytics/v1')),
+			'token'        => SA_DB::get_public_token(),
+			'trackingMode' => $tracking_mode,
 		);
+
+		// Add URL patterns based on tracking mode
+		if ($tracking_mode === 'whitelist') {
+			$settings['includedUrls'] = SA_DB::get_included_urls();
+		} else {
+			$settings['excludedUrls'] = SA_DB::get_excluded_urls();
+		}
 
 		wp_add_inline_script(
 			$handle,
