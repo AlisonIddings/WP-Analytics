@@ -1,0 +1,835 @@
+<?php
+/**
+ * REST API handler for WP Analytics.
+ *
+ * Provides endpoints for receiving analytics data from the frontend
+ * tracking script. Includes security measures like token validation,
+ * rate limiting, and input sanitization.
+ *
+ * @package WP_Analytics
+ * @since 1.0.0
+ */
+
+declare(strict_types=1);
+
+// Prevent direct file access
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
+/**
+ * Class WPA_REST_API
+ *
+ * Registers and handles REST API endpoints for analytics tracking:
+ * - POST /wp-analytics/v1/pageview - Record a page view
+ * - POST /wp-analytics/v1/engagement - Update engagement metrics
+ * - POST /wp-analytics/v1/link-click - Record a link click
+ * - POST /wp-analytics/v1/conversion - Record a conversion event
+ *
+ * @since 1.0.0
+ */
+final class WPA_REST_API {
+
+	/*
+	 * =========================================================================
+	 * CONSTANTS
+	 * =========================================================================
+	 */
+
+	/** @var string REST API namespace */
+	private const NAMESPACE = 'wp-analytics/v1';
+
+	/** @var int Rate limit window in seconds */
+	private const RATE_LIMIT_WINDOW = 60;
+
+	/** @var int Maximum requests per IP per window */
+	private const RATE_LIMIT_MAX_REQUESTS = 30;
+
+	/*
+	 * =========================================================================
+	 * INITIALIZATION
+	 * =========================================================================
+	 */
+
+	/**
+	 * Initialize the REST API endpoints.
+	 *
+	 * @return void
+	 */
+	public static function init(): void {
+		add_action( 'rest_api_init', array( __CLASS__, 'register_routes' ) );
+	}
+
+	/**
+	 * Register all REST API routes.
+	 *
+	 * @return void
+	 */
+	public static function register_routes(): void {
+
+		// Pageview endpoint - records when a user visits a page
+		register_rest_route(
+			self::NAMESPACE,
+			'/pageview',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( __CLASS__, 'handle_pageview' ),
+				'permission_callback' => '__return_true',
+				'args'                => array(
+					'token'    => array(
+						'type'     => 'string',
+						'required' => true,
+					),
+					'page_url' => array(
+						'type'     => 'string',
+						'required' => true,
+					),
+					'referrer' => array(
+						'type'     => 'string',
+						'required' => false,
+					),
+					'session'  => array(
+						'type'     => 'string',
+						'required' => false,
+					),
+				),
+			)
+		);
+
+		// Engagement endpoint - updates time on page and scroll depth
+		register_rest_route(
+			self::NAMESPACE,
+			'/engagement',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( __CLASS__, 'handle_engagement' ),
+				'permission_callback' => '__return_true',
+				'args'                => array(
+					'token'        => array(
+						'type'     => 'string',
+						'required' => true,
+					),
+					'pageview_id'  => array(
+						'type'     => 'integer',
+						'required' => true,
+					),
+					'session'      => array(
+						'type'     => 'string',
+						'required' => true,
+					),
+					'time_on_page' => array(
+						'type'     => 'integer',
+						'required' => false,
+					),
+					'scroll_depth' => array(
+						'type'     => 'integer',
+						'required' => false,
+					),
+				),
+			)
+		);
+
+		// Link click endpoint - records when a user clicks a link
+		register_rest_route(
+			self::NAMESPACE,
+			'/link-click',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( __CLASS__, 'handle_link_click' ),
+				'permission_callback' => '__return_true',
+				'args'                => array(
+					'token'       => array(
+						'type'     => 'string',
+						'required' => true,
+					),
+					'pageview_id' => array(
+						'type'     => 'integer',
+						'required' => true,
+					),
+					'page_url'    => array(
+						'type'     => 'string',
+						'required' => true,
+					),
+					'link_url'    => array(
+						'type'     => 'string',
+						'required' => true,
+					),
+					'referrer'    => array(
+						'type'     => 'string',
+						'required' => false,
+					),
+					'session'     => array(
+						'type'     => 'string',
+						'required' => false,
+					),
+				),
+			)
+		);
+
+		// Conversion endpoint - records button clicks for conversion tracking
+		register_rest_route(
+			self::NAMESPACE,
+			'/conversion',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( __CLASS__, 'handle_conversion' ),
+				'permission_callback' => '__return_true',
+				'args'                => array(
+					'token'       => array(
+						'type'     => 'string',
+						'required' => true,
+					),
+					'pageview_id' => array(
+						'type'     => 'integer',
+						'required' => true,
+					),
+					'button_id'   => array(
+						'type'     => 'string',
+						'required' => true,
+					),
+					'page_url'    => array(
+						'type'     => 'string',
+						'required' => true,
+					),
+					'session'     => array(
+						'type'     => 'string',
+						'required' => true,
+					),
+				),
+			)
+		);
+	}
+
+	/*
+	 * =========================================================================
+	 * REQUEST HANDLERS
+	 * =========================================================================
+	 */
+
+	/**
+	 * Handle pageview requests.
+	 *
+	 * Creates a new pageview record when a user visits a page.
+	 * Returns the pageview ID for subsequent engagement/click tracking.
+	 *
+	 * @param WP_REST_Request $request The incoming request.
+	 * @return WP_REST_Response|WP_Error Response or error.
+	 */
+	public static function handle_pageview( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		// Validate token, origin, rate limit
+		$valid = self::validate_request( $request );
+		if ( is_wp_error( $valid ) ) {
+			return $valid;
+		}
+
+		global $wpdb;
+		$table = WPA_Database::table_name();
+
+		// Validate and sanitize input
+		$page_url = self::validate_url( (string) $request->get_param( 'page_url' ) );
+		if ( $page_url === '' ) {
+			return new WP_Error(
+				'wpa_invalid_page_url',
+				__( 'Invalid page URL.', 'wp-analytics' ),
+				array( 'status' => 400 )
+			);
+		}
+
+		$referrer = self::validate_url( (string) $request->get_param( 'referrer' ) );
+		$session  = self::validate_session_id( (string) $request->get_param( 'session' ) );
+		$ip       = self::get_client_ip();
+		$ua       = self::sanitize_user_agent();
+
+		// Insert the pageview record
+		$sql  = "INSERT INTO {$table}
+			(event_type, session_id, page_url, referrer_url, ip_address, user_agent, time_on_page, scroll_depth, created_at)
+			VALUES (%s, %s, %s, %s, %s, %s, %d, %d, %s)";
+		$args = array(
+			'pageview',
+			$session,
+			$page_url,
+			$referrer,
+			$ip,
+			$ua,
+			0,
+			0,
+			gmdate( 'Y-m-d H:i:s' ),
+		);
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$result = $wpdb->query( $wpdb->prepare( $sql, $args ) );
+
+		if ( $result === false ) {
+			return new WP_Error(
+				'wpa_db_error',
+				__( 'Database insert failed.', 'wp-analytics' ),
+				array( 'status' => 500 )
+			);
+		}
+
+		$pageview_id = (int) $wpdb->insert_id;
+
+		return new WP_REST_Response( array( 'pageview_id' => $pageview_id ), 200 );
+	}
+
+	/**
+	 * Handle engagement updates.
+	 *
+	 * Updates the time on page and scroll depth for an existing pageview.
+	 * Called when the user leaves the page or periodically during their visit.
+	 *
+	 * @param WP_REST_Request $request The incoming request.
+	 * @return WP_REST_Response|WP_Error Response or error.
+	 */
+	public static function handle_engagement( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		$valid = self::validate_request( $request );
+		if ( is_wp_error( $valid ) ) {
+			return $valid;
+		}
+
+		// Validate pageview ID
+		$pageview_id = absint( $request->get_param( 'pageview_id' ) );
+		if ( $pageview_id <= 0 ) {
+			return new WP_Error(
+				'wpa_invalid_pageview',
+				__( 'Invalid pageview ID.', 'wp-analytics' ),
+				array( 'status' => 400 )
+			);
+		}
+
+		// Validate session ID (required for ownership verification)
+		$session = self::validate_session_id( (string) $request->get_param( 'session' ) );
+		if ( $session === '' ) {
+			return new WP_Error(
+				'wpa_invalid_session',
+				__( 'Invalid session.', 'wp-analytics' ),
+				array( 'status' => 400 )
+			);
+		}
+
+		// Get and validate engagement metrics
+		$time_on_page = $request->get_param( 'time_on_page' );
+		$scroll_depth = $request->get_param( 'scroll_depth' );
+
+		// Clamp values to reasonable limits
+		// Max time: 24 hours (86400 seconds) - prevents unrealistic values
+		$time   = is_numeric( $time_on_page ) ? min( 86400, max( 0, (int) $time_on_page ) ) : null;
+		$scroll = is_numeric( $scroll_depth ) ? min( 100, max( 0, (int) $scroll_depth ) ) : null;
+
+		// Nothing to update
+		if ( $time === null && $scroll === null ) {
+			return new WP_REST_Response( array( 'updated' => false ), 200 );
+		}
+
+		global $wpdb;
+		$table = WPA_Database::table_name();
+
+		// Build update data
+		$set     = array();
+		$formats = array();
+
+		if ( $time !== null ) {
+			$set['time_on_page'] = $time;
+			$formats[]           = '%d';
+		}
+		if ( $scroll !== null ) {
+			$set['scroll_depth'] = $scroll;
+			$formats[]           = '%d';
+		}
+
+		/*
+		 * Security: Only allow updating pageviews that belong to the same session.
+		 * This prevents IDOR attacks where an attacker could modify someone else's data.
+		 */
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$updated = $wpdb->update(
+			$table,
+			$set,
+			array(
+				'id'         => $pageview_id,
+				'event_type' => 'pageview',
+				'session_id' => $session,
+			),
+			$formats,
+			array( '%d', '%s', '%s' )
+		);
+
+		return new WP_REST_Response( array( 'updated' => (bool) $updated ), 200 );
+	}
+
+	/**
+	 * Handle link click tracking.
+	 *
+	 * Records when a user clicks a link on a tracked page.
+	 * Links the click to the parent pageview for analysis.
+	 *
+	 * @param WP_REST_Request $request The incoming request.
+	 * @return WP_REST_Response|WP_Error Response or error.
+	 */
+	public static function handle_link_click( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		$valid = self::validate_request( $request );
+		if ( is_wp_error( $valid ) ) {
+			return $valid;
+		}
+
+		global $wpdb;
+		$table = WPA_Database::table_name();
+
+		// Validate and sanitize all inputs
+		$pageview_id = absint( $request->get_param( 'pageview_id' ) );
+		$page_url    = self::validate_url( (string) $request->get_param( 'page_url' ) );
+		$link_url    = self::validate_url( (string) $request->get_param( 'link_url' ) );
+		$referrer    = self::validate_url( (string) $request->get_param( 'referrer' ) );
+		$session     = self::validate_session_id( (string) $request->get_param( 'session' ) );
+
+		if ( $pageview_id <= 0 || $page_url === '' || $link_url === '' || $session === '' ) {
+			return new WP_Error(
+				'wpa_invalid_params',
+				__( 'Invalid parameters.', 'wp-analytics' ),
+				array( 'status' => 400 )
+			);
+		}
+
+		/*
+		 * Security: Verify that the pageview belongs to this session.
+		 * Prevents IDOR attacks where clicks could be associated with other sessions.
+		 */
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$pageview_exists = $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT COUNT(*) FROM {$table} WHERE id = %d AND session_id = %s AND event_type = %s",
+				$pageview_id,
+				$session,
+				'pageview'
+			)
+		);
+
+		if ( (int) $pageview_exists === 0 ) {
+			return new WP_Error(
+				'wpa_invalid_pageview',
+				__( 'Invalid pageview.', 'wp-analytics' ),
+				array( 'status' => 400 )
+			);
+		}
+
+		$ip = self::get_client_ip();
+		$ua = self::sanitize_user_agent();
+
+		// Insert the link click record
+		$sql  = "INSERT INTO {$table}
+			(event_type, pageview_id, session_id, page_url, referrer_url, link_url, ip_address, user_agent, time_on_page, scroll_depth, created_at)
+			VALUES (%s, %d, %s, %s, %s, %s, %s, %s, NULL, NULL, %s)";
+		$args = array(
+			'link_click',
+			$pageview_id,
+			$session,
+			$page_url,
+			$referrer,
+			$link_url,
+			$ip,
+			$ua,
+			gmdate( 'Y-m-d H:i:s' ),
+		);
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$result = $wpdb->query( $wpdb->prepare( $sql, $args ) );
+
+		if ( $result === false ) {
+			return new WP_Error(
+				'wpa_db_error',
+				__( 'Database insert failed.', 'wp-analytics' ),
+				array( 'status' => 500 )
+			);
+		}
+
+		return new WP_REST_Response( array( 'ok' => true ), 200 );
+	}
+
+	/**
+	 * Handle conversion tracking.
+	 *
+	 * Records when a user clicks a tracked conversion button.
+	 * Only accepts button IDs that are configured in settings.
+	 *
+	 * @param WP_REST_Request $request The incoming request.
+	 * @return WP_REST_Response|WP_Error Response or error.
+	 */
+	public static function handle_conversion( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		$valid = self::validate_request( $request );
+		if ( is_wp_error( $valid ) ) {
+			return $valid;
+		}
+
+		global $wpdb;
+		$table = WPA_Database::table_name();
+
+		// Validate pageview ID
+		$pageview_id = absint( $request->get_param( 'pageview_id' ) );
+
+		// Validate button ID with length limit
+		$raw_button_id = (string) $request->get_param( 'button_id' );
+		if ( strlen( $raw_button_id ) > 100 ) {
+			return new WP_Error(
+				'wpa_invalid_button',
+				__( 'Button ID too long.', 'wp-analytics' ),
+				array( 'status' => 400 )
+			);
+		}
+
+		$button_id = sanitize_html_class( $raw_button_id );
+		$page_url  = self::validate_url( (string) $request->get_param( 'page_url' ) );
+		$session   = self::validate_session_id( (string) $request->get_param( 'session' ) );
+
+		if ( $pageview_id <= 0 || $button_id === '' || $page_url === '' || $session === '' ) {
+			return new WP_Error(
+				'wpa_invalid_params',
+				__( 'Invalid parameters.', 'wp-analytics' ),
+				array( 'status' => 400 )
+			);
+		}
+
+		// Security: Verify this button is configured for tracking
+		$enabled_buttons = WPA_Database::get_enabled_conversion_button_ids();
+		if ( ! in_array( $button_id, $enabled_buttons, true ) ) {
+			return new WP_Error(
+				'wpa_invalid_button',
+				__( 'Button not configured for tracking.', 'wp-analytics' ),
+				array( 'status' => 400 )
+			);
+		}
+
+		// Security: Verify pageview belongs to this session
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$pageview_exists = $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT COUNT(*) FROM {$table} WHERE id = %d AND session_id = %s AND event_type = %s",
+				$pageview_id,
+				$session,
+				'pageview'
+			)
+		);
+
+		if ( (int) $pageview_exists === 0 ) {
+			return new WP_Error(
+				'wpa_invalid_pageview',
+				__( 'Invalid pageview.', 'wp-analytics' ),
+				array( 'status' => 400 )
+			);
+		}
+
+		$ip = self::get_client_ip();
+		$ua = self::sanitize_user_agent();
+
+		// Get the friendly name for the button
+		$button_name = WPA_Database::get_conversion_button_name( $button_id );
+
+		// Insert conversion record (button info stored in link_url field as "id|name")
+		$sql  = "INSERT INTO {$table}
+			(event_type, pageview_id, session_id, page_url, link_url, ip_address, user_agent, time_on_page, scroll_depth, created_at)
+			VALUES (%s, %d, %s, %s, %s, %s, %s, NULL, NULL, %s)";
+		$args = array(
+			'conversion',
+			$pageview_id,
+			$session,
+			$page_url,
+			$button_id . '|' . $button_name,
+			$ip,
+			$ua,
+			gmdate( 'Y-m-d H:i:s' ),
+		);
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$result = $wpdb->query( $wpdb->prepare( $sql, $args ) );
+
+		if ( $result === false ) {
+			return new WP_Error(
+				'wpa_db_error',
+				__( 'Database insert failed.', 'wp-analytics' ),
+				array( 'status' => 500 )
+			);
+		}
+
+		return new WP_REST_Response(
+			array(
+				'ok'     => true,
+				'button' => $button_name,
+			),
+			200
+		);
+	}
+
+	/*
+	 * =========================================================================
+	 * SECURITY & VALIDATION
+	 * =========================================================================
+	 */
+
+	/**
+	 * Validate an incoming tracking request.
+	 *
+	 * Performs multiple security checks:
+	 * 1. Content-Type validation (prevents CSRF via form submission)
+	 * 2. Token validation (ensures request comes from our tracking script)
+	 * 3. Same-origin validation (blocks cross-site requests)
+	 * 4. Rate limiting (prevents abuse)
+	 *
+	 * @param WP_REST_Request $request The incoming request.
+	 * @return true|WP_Error True if valid, WP_Error otherwise.
+	 */
+	private static function validate_request( WP_REST_Request $request ): true|WP_Error {
+		// Check Content-Type to help prevent CSRF attacks
+		$content_type = $request->get_content_type();
+		if ( ! isset( $content_type['value'] ) || strpos( $content_type['value'], 'application/json' ) === false ) {
+			// Also allow text/plain for Beacon API
+			$raw_content_type = isset( $_SERVER['CONTENT_TYPE'] ) ? (string) $_SERVER['CONTENT_TYPE'] : '';
+			if ( strpos( $raw_content_type, 'application/json' ) === false && strpos( $raw_content_type, 'text/plain' ) === false ) {
+				return new WP_Error(
+					'wpa_invalid_content_type',
+					__( 'Invalid content type.', 'wp-analytics' ),
+					array( 'status' => 400 )
+				);
+			}
+		}
+
+		// Validate the API token
+		$token        = (string) $request->get_param( 'token' );
+		$stored_token = WPA_Database::get_public_token();
+
+		// Ensure both tokens exist and match (timing-safe comparison)
+		if ( $stored_token === '' || $token === '' || ! hash_equals( $stored_token, $token ) ) {
+			return new WP_Error(
+				'wpa_invalid_token',
+				__( 'Invalid token.', 'wp-analytics' ),
+				array( 'status' => 403 )
+			);
+		}
+
+		// Verify same-origin request
+		if ( ! self::is_same_origin() ) {
+			return new WP_Error(
+				'wpa_invalid_origin',
+				__( 'Invalid origin.', 'wp-analytics' ),
+				array( 'status' => 403 )
+			);
+		}
+
+		// Check rate limit
+		$rate_check = self::check_rate_limit();
+		if ( is_wp_error( $rate_check ) ) {
+			return $rate_check;
+		}
+
+		return true;
+	}
+
+	/**
+	 * Check if request appears to be same-origin.
+	 *
+	 * Compares the Origin or Referer header against the site's home URL.
+	 *
+	 * @return bool True if same-origin, false otherwise.
+	 */
+	private static function is_same_origin(): bool {
+		$home      = wp_parse_url( home_url() );
+		$home_host = isset( $home['host'] ) ? strtolower( (string) $home['host'] ) : '';
+
+		if ( $home_host === '' ) {
+			return true; // Can't validate without home host
+		}
+
+		// Get origin from headers
+		$ref = '';
+		if ( ! empty( $_SERVER['HTTP_ORIGIN'] ) ) {
+			$ref = (string) $_SERVER['HTTP_ORIGIN'];
+		} elseif ( ! empty( $_SERVER['HTTP_REFERER'] ) ) {
+			$ref = (string) $_SERVER['HTTP_REFERER'];
+		}
+
+		// Handle missing headers (some privacy browsers strip them)
+		if ( $ref === '' ) {
+			$content_type = isset( $_SERVER['CONTENT_TYPE'] ) ? (string) $_SERVER['CONTENT_TYPE'] : '';
+			// Allow JSON requests without headers (with rate limiting as protection)
+			if ( strpos( $content_type, 'application/json' ) !== false ) {
+				return true;
+			}
+			// Reject non-JSON requests without origin headers
+			return false;
+		}
+
+		// Compare host names
+		$ref_url  = wp_parse_url( $ref );
+		$ref_host = isset( $ref_url['host'] ) ? strtolower( (string) $ref_url['host'] ) : '';
+
+		return $ref_host === $home_host;
+	}
+
+	/**
+	 * Check and enforce rate limiting.
+	 *
+	 * Limits requests per IP address to prevent abuse.
+	 * Uses WordPress transients for storage.
+	 *
+	 * @return true|WP_Error True if within limit, WP_Error if exceeded.
+	 */
+	private static function check_rate_limit(): true|WP_Error {
+		$ip = self::get_client_ip_raw();
+		if ( $ip === '' ) {
+			return true; // Can't rate limit without IP
+		}
+
+		$key = 'wpa_rate_' . md5( $ip );
+
+		// Get current count with optimized query
+		global $wpdb;
+		$option_name  = '_transient_' . $key;
+		$timeout_name = '_transient_timeout_' . $key;
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$row = $wpdb->get_row(
+			$wpdb->prepare(
+				"SELECT o.option_value, t.option_value as timeout 
+				FROM {$wpdb->options} o 
+				LEFT JOIN {$wpdb->options} t ON t.option_name = %s 
+				WHERE o.option_name = %s",
+				$timeout_name,
+				$option_name
+			)
+		);
+
+		$count = 0;
+		$now   = time();
+
+		if ( $row && $row->timeout && (int) $row->timeout > $now ) {
+			$count = (int) $row->option_value;
+		}
+
+		// Check if rate limit exceeded
+		if ( $count >= self::RATE_LIMIT_MAX_REQUESTS ) {
+			return new WP_Error(
+				'wpa_rate_limited',
+				__( 'Too many requests. Please try again later.', 'wp-analytics' ),
+				array( 'status' => 429 )
+			);
+		}
+
+		// Increment counter
+		set_transient( $key, $count + 1, self::RATE_LIMIT_WINDOW );
+
+		return true;
+	}
+
+	/**
+	 * Validate and sanitize a session ID.
+	 *
+	 * Session IDs should be 16-64 character hexadecimal strings.
+	 *
+	 * @param string $session The session ID to validate.
+	 * @return string Validated session ID, or empty string if invalid.
+	 */
+	private static function validate_session_id( string $session ): string {
+		$session = sanitize_text_field( $session );
+
+		// Validate format: 16-64 hex characters
+		if ( $session === '' || ! preg_match( '/^[a-f0-9]{16,64}$/i', $session ) ) {
+			return '';
+		}
+
+		return $session;
+	}
+
+	/**
+	 * Validate and sanitize a URL.
+	 *
+	 * Blocks dangerous URL schemes (javascript:, data:, etc.)
+	 * and limits URL length.
+	 *
+	 * @param string $url The URL to validate.
+	 * @return string Validated URL, or empty string if invalid.
+	 */
+	private static function validate_url( string $url ): string {
+		// Limit URL length (2048 is common browser limit)
+		if ( strlen( $url ) > 2048 ) {
+			$url = substr( $url, 0, 2048 );
+		}
+
+		$url = esc_url_raw( $url );
+		if ( $url === '' ) {
+			return '';
+		}
+
+		// Verify URL uses a safe scheme
+		$parsed = wp_parse_url( $url );
+		$scheme = isset( $parsed['scheme'] ) ? strtolower( $parsed['scheme'] ) : '';
+
+		$allowed_schemes = array( 'http', 'https', 'mailto', 'tel', 'ftp' );
+		if ( $scheme !== '' && ! in_array( $scheme, $allowed_schemes, true ) ) {
+			return '';
+		}
+
+		return $url;
+	}
+
+	/**
+	 * Sanitize the user agent string.
+	 *
+	 * Removes potentially dangerous characters and limits length.
+	 *
+	 * @return string Sanitized user agent.
+	 */
+	private static function sanitize_user_agent(): string {
+		if ( empty( $_SERVER['HTTP_USER_AGENT'] ) ) {
+			return '';
+		}
+
+		$ua = (string) $_SERVER['HTTP_USER_AGENT'];
+
+		// Limit length
+		$ua = substr( $ua, 0, 500 );
+
+		// Remove HTML tags
+		$ua = wp_strip_all_tags( $ua );
+
+		// Remove control characters
+		$ua = preg_replace( '/[\x00-\x1F\x7F]/', '', $ua );
+
+		return is_string( $ua ) ? $ua : '';
+	}
+
+	/**
+	 * Get raw client IP address for rate limiting.
+	 *
+	 * Does not anonymize - used only for rate limit tracking.
+	 *
+	 * @return string IP address or empty string.
+	 */
+	private static function get_client_ip_raw(): string {
+		$ip = '';
+
+		if ( ! empty( $_SERVER['REMOTE_ADDR'] ) ) {
+			$ip = (string) $_SERVER['REMOTE_ADDR'];
+		}
+
+		// Remove any non-IP characters
+		$ip = preg_replace( '/[^0-9a-fA-F:\.]/', '', $ip );
+
+		return is_string( $ip ) ? substr( $ip, 0, 45 ) : '';
+	}
+
+	/**
+	 * Get client IP address for storage.
+	 *
+	 * Respects the IP anonymization setting.
+	 *
+	 * @return string IP address (possibly anonymized).
+	 */
+	private static function get_client_ip(): string {
+		$ip = self::get_client_ip_raw();
+
+		// Apply anonymization if enabled
+		if ( WPA_Database::is_ip_anonymization_enabled() ) {
+			$ip = WPA_Database::anonymize_ip( $ip );
+		}
+
+		return $ip;
+	}
+}

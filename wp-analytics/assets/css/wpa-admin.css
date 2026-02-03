@@ -1,0 +1,129 @@
+/**
+ * WP Analytics Admin Styles
+ *
+ * Styles for the WP Analytics admin dashboard including
+ * filters, tables, and mobile responsive design.
+ *
+ * @package WP_Analytics
+ * @since 1.0.0
+ */
+
+/* ==========================================================================
+   Filter Bar
+   ========================================================================== */
+
+.wpa-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: end;
+  margin: 12px 0 16px;
+}
+
+.wpa-filters .wpa-field {
+  min-width: 180px;
+}
+
+.wpa-filters label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+/* ==========================================================================
+   Action Buttons
+   ========================================================================== */
+
+.wpa-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 12px 0;
+}
+
+.wpa-actions .button {
+  white-space: nowrap;
+}
+
+/* ==========================================================================
+   Mobile Info Display
+   ========================================================================== */
+
+/* Hidden on desktop, shown in mobile collapsed view */
+.wpa-mobile-info {
+  display: none;
+}
+
+/* ==========================================================================
+   Mobile Responsive Styles
+   ========================================================================== */
+
+@media screen and (max-width: 782px) {
+  
+  /* Mobile info panel in collapsed list table rows */
+  .wpa-mobile-info {
+    display: block;
+    margin: 8px 0;
+    padding: 8px;
+    background: #f6f7f7;
+    border-radius: 4px;
+    font-size: 13px;
+  }
+  
+  /* Event type badge */
+  .wpa-mobile-info .wpa-mobile-event {
+    display: inline-block;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 3px;
+    margin-right: 8px;
+    background: #2271b1;
+    color: #fff;
+    font-size: 12px;
+  }
+  
+  /* Event type specific colors */
+  .wpa-mobile-info .wpa-event-pageview {
+    background: #2271b1; /* Blue for pageviews */
+  }
+  
+  .wpa-mobile-info .wpa-event-link_click {
+    background: #996800; /* Orange for link clicks */
+  }
+  
+  .wpa-mobile-info .wpa-event-conversion {
+    background: #4caf50; /* Green for conversions */
+  }
+  
+  /* Page URL display */
+  .wpa-mobile-info .wpa-mobile-url {
+    display: block;
+    margin-top: 6px;
+    color: #50575e;
+    word-break: break-all;
+  }
+  
+  /* Spacing when URL follows event badge */
+  .wpa-mobile-info .wpa-mobile-event:has(+ .wpa-mobile-url) {
+    margin-bottom: 4px;
+  }
+  
+  /* Stack filters vertically on mobile */
+  .wpa-filters {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .wpa-filters .wpa-field {
+    min-width: 100%;
+  }
+  
+  /* Stack data management sections on mobile */
+  .wpa-data-management {
+    flex-direction: column !important;
+  }
+  
+  .wpa-delete-section {
+    min-width: 100% !important;
+  }
+}

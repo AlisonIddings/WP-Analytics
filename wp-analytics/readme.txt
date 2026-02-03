@@ -1,7 +1,7 @@
-=== Server Analytics ===
+=== WP Analytics ===
 Contributors: AlisonIddings
 Donate link: https://alisoniddings.com
-Tags: analytics, pageviews, engagement, statistics, tracking
+Tags: analytics, pageviews, engagement, statistics, tracking, conversions
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 7.4
@@ -9,11 +9,11 @@ Stable tag: 1.1.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Privacy-focused, server-side analytics for WordPress. Track pageviews, engagement, and link clicks without external services.
+Privacy-focused, server-side analytics for WordPress. Track pageviews, engagement, and conversions without external services.
 
 == Description ==
 
-Server Analytics is a lightweight, privacy-focused analytics plugin that collects pageview and engagement data entirely on your own server. No data is sent to third-party services.
+WP Analytics is a lightweight, privacy-focused analytics plugin that collects pageview and engagement data entirely on your own server. No data is sent to third-party services.
 
 **Features:**
 
@@ -35,18 +35,20 @@ Server Analytics is a lightweight, privacy-focused analytics plugin that collect
 * Automatic data deletion after configurable retention period (default: 90 days)
 * All data stays on your server
 * Integrates with WordPress Privacy Policy page
+* No cookies used - session tracking via localStorage only
 
 **For Developers:**
 
 Override the capability required to view analytics:
 
-`add_filter('sa_view_analytics_capability', fn() => 'manage_options');`
+`add_filter( 'wpa_view_analytics_capability', function() { return 'manage_options'; } );`
 
 == Installation ==
 
-1. Upload the `server-analytics` folder to `/wp-content/plugins/`
+1. Upload the `wp-analytics` folder to `/wp-content/plugins/`
 2. Activate the plugin through the 'Plugins' menu in WordPress
-3. Visit Dashboard → Server Analytics to view your data
+3. Visit Dashboard → WP Analytics to view your data
+4. Configure tracking options under WP Analytics → Settings
 
 The plugin starts collecting data automatically upon activation.
 
@@ -62,11 +64,11 @@ The plugin is designed with privacy in mind. IP addresses are anonymized by defa
 
 = Where is the data stored? =
 
-All analytics data is stored in your WordPress database in a custom table (`{prefix}_sa_events`). No data is sent to external servers.
+All analytics data is stored in your WordPress database in a custom table (`{prefix}_wpa_events`). No data is sent to external servers.
 
 = How do I export my data? =
 
-Visit Dashboard → Server Analytics and use the "Export CSV" or "Export PDF" buttons. You can filter the data before exporting.
+Visit Dashboard → WP Analytics and use the "Export CSV" or "Export PDF" buttons. You can filter the data before exporting.
 
 = Can I disable IP tracking entirely? =
 
@@ -74,11 +76,11 @@ IP addresses are already anonymized by default. The anonymized IP helps with bas
 
 = How do I change the data retention period? =
 
-Go to Dashboard → Server Analytics → Settings and adjust the "Data Retention" setting. The default is 90 days. Set to 0 to keep data indefinitely (not recommended for GDPR compliance).
+Go to Dashboard → WP Analytics → Settings and adjust the "Data Retention" setting. The default is 90 days. Set to 0 to keep data indefinitely (not recommended for GDPR compliance).
 
 = How do I track button clicks as conversions? =
 
-Go to Dashboard → Server Analytics → Settings and scroll to "Conversion Tracking". Add the HTML ID of buttons you want to track. For example, if your button is `<button id="buy-now">`, enter `buy-now` as the Button ID with a friendly name like "Purchase Button".
+Go to Dashboard → WP Analytics → Settings and scroll to "Conversion Tracking". Add the HTML ID of buttons you want to track. For example, if your button is `<button id="buy-now">`, enter `buy-now` as the Button ID with a friendly name like "Purchase Button".
 
 = Can I exclude certain pages from tracking? =
 
@@ -90,13 +92,14 @@ Yes! Go to Settings and you can:
 
 = What capabilities are required to view analytics? =
 
-By default, users with the `edit_pages` capability (Editors and above) can view and export analytics. You can change this with the `sa_view_analytics_capability` filter.
+By default, users with the `edit_pages` capability (Editors and above) can view and export analytics. You can change this with the `wpa_view_analytics_capability` filter.
 
 == Screenshots ==
 
 1. Analytics dashboard with filtering and sorting
-2. CSV export of analytics data
-3. PDF report generation
+2. Settings page for tracking configuration
+3. Conversion tracking setup
+4. Mobile-responsive data table
 
 == Changelog ==
 
@@ -108,7 +111,9 @@ By default, users with the `edit_pages` capability (Editors and above) can view 
 * Added whitelist mode to only track specific URLs
 * Added bulk delete and date range delete options
 * Added delete all data functionality
+* Added mobile-responsive event display
 * Improved security hardening for all inputs
+* Better code documentation and organization
 
 = 1.0.0 =
 * Initial release
@@ -127,4 +132,4 @@ By default, users with the `edit_pages` capability (Editors and above) can view 
 New features: Conversion tracking, URL filtering, and data management tools. Update recommended for all users.
 
 = 1.0.0 =
-Initial release of Server Analytics.
+Initial release of WP Analytics.

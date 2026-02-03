@@ -1,27 +1,52 @@
 <?php
+/**
+ * List table for displaying analytics events.
+ *
+ * Extends WP_List_Table to provide a sortable, filterable table
+ * for viewing analytics events in the WordPress admin.
+ *
+ * @package WP_Analytics
+ * @since 1.0.0
+ */
 
 declare(strict_types=1);
 
-if (!defined('ABSPATH')) {
+// Prevent direct file access
+if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-if (!class_exists('WP_List_Table')) {
+// Load WordPress list table class
+if ( ! class_exists( 'WP_List_Table' ) ) {
 	require_once ABSPATH . 'wp-admin/includes/class-wp-list-table.php';
 }
 
-final class SA_List_Table extends WP_List_Table {
-	/** @var array<string, mixed> */
+/**
+ * Class WPA_List_Table
+ *
+ * Custom list table for displaying analytics events with:
+ * - Sortable columns (date, event type, IP, engagement metrics)
+ * - Filterable by event type, date range, and search
+ * - Bulk delete actions
+ * - Mobile-responsive display
+ *
+ * @since 1.0.0
+ */
+final class WPA_List_Table extends WP_List_Table {
+
+	/** @var array<string, mixed> Current filter values */
 	private array $filters = array();
 
 	/**
-	 * @param array<string, mixed> $filters
+	 * Constructor.
+	 *
+	 * @param array<string, mixed> $filters Current filter values from URL.
 	 */
-	public function __construct(array $filters = array()) {
+	public function __construct( array $filters = array() ) {
 		parent::__construct(
 			array(
-				'singular' => 'sa_event',
-				'plural'   => 'sa_events',
+				'singular' => 'wpa_event',
+				'plural'   => 'wpa_events',
 				'ajax'     => false,
 			)
 		);
@@ -29,19 +54,21 @@ final class SA_List_Table extends WP_List_Table {
 	}
 
 	/**
-	 * @return array<string, string>
+	 * Define table columns.
+	 *
+	 * @return array<string, string> Column slug => Column title
 	 */
 	public function get_columns(): array {
 		return array(
 			'cb'           => '<input type="checkbox" />',
-			'created_at'   => __('Date / Time (UTC)', 'server-analytics'),
-			'event_type'   => __('Event', 'server-analytics'),
-			'page_url'     => __('Page URL', 'server-analytics'),
-			'referrer_url' => __('Referrer', 'server-analytics'),
-			'link_url'     => __('Link clicked', 'server-analytics'),
-			'ip_address'   => __('IP address', 'server-analytics'),
-			'time_on_page' => __('Time on page (s)', 'server-analytics'),
-			'scroll_depth' => __('Scroll depth (%)', 'server-analytics'),
+			'created_at'   => __( 'Date / Time (UTC)', 'wp-analytics' ),
+			'event_type'   => __( 'Event', 'wp-analytics' ),
+			'page_url'     => __( 'Page URL', 'wp-analytics' ),
+			'referrer_url' => __( 'Referrer', 'wp-analytics' ),
+			'link_url'     => __( 'Link Clicked', 'wp-analytics' ),
+			'ip_address'   => __( 'IP Address', 'wp-analytics' ),
+			'time_on_page' => __( 'Time (s)', 'wp-analytics' ),
+			'scroll_depth' => __( 'Scroll (%)', 'wp-analytics' ),
 		);
 	}
 
@@ -58,13 +85,13 @@ final class SA_List_Table extends WP_List_Table {
 	}
 
 	/**
-	 * Get bulk actions.
+	 * Define available bulk actions.
 	 *
-	 * @return array<string, string>
+	 * @return array<string, string> Action slug => Action label
 	 */
 	protected function get_bulk_actions(): array {
 		return array(
-			'bulk_delete' => __('Delete', 'server-analytics'),
+			'bulk_delete' => __( 'Delete', 'wp-analytics' ),
 		);
 	}
 
@@ -102,21 +129,21 @@ final class SA_List_Table extends WP_List_Table {
 		$delete_url = wp_nonce_url(
 			add_query_arg(
 				array(
-					'page'   => 'server-analytics',
+					'page'   => 'wp-analytics',
 					'action' => 'delete',
 					'event'  => $id,
 				),
 				admin_url('admin.php')
 			),
-			'sa_delete_event_' . $id
+			'wpa_delete_event_' . $id
 		);
 
 		$actions = array(
 			'delete' => sprintf(
 				'<a href="%s" onclick="return confirm(\'%s\');">%s</a>',
 				esc_url($delete_url),
-				esc_js(__('Are you sure you want to delete this entry?', 'server-analytics')),
-				esc_html__('Delete', 'server-analytics')
+				esc_js(__('Are you sure you want to delete this entry?', 'wp-analytics')),
+				esc_html__('Delete', 'wp-analytics')
 			),
 		);
 
@@ -125,18 +152,18 @@ final class SA_List_Table extends WP_List_Table {
 		$page_url = $item['page_url'] ?? '';
 		
 		$event_labels = array(
-			'pageview'   => __('Pageview', 'server-analytics'),
-			'link_click' => __('Link Click', 'server-analytics'),
-			'conversion' => __('Conversion', 'server-analytics'),
+			'pageview'   => __('Pageview', 'wp-analytics'),
+			'link_click' => __('Link Click', 'wp-analytics'),
+			'conversion' => __('Conversion', 'wp-analytics'),
 		);
 		$event_label = $event_labels[$event_type] ?? $event_type;
-		$event_class = 'sa-mobile-event sa-event-' . esc_attr($event_type);
+		$event_class = 'wpa-mobile-event wpa-event-' . esc_attr($event_type);
 		
-		$mobile_info = '<div class="sa-mobile-info">';
+		$mobile_info = '<div class="wpa-mobile-info">';
 		$mobile_info .= '<span class="' . $event_class . '">' . esc_html($event_label) . '</span>';
 		if ($page_url !== '') {
 			$truncated_url = strlen($page_url) > 50 ? substr($page_url, 0, 47) . '...' : $page_url;
-			$mobile_info .= '<span class="sa-mobile-url">' . esc_html($truncated_url) . '</span>';
+			$mobile_info .= '<span class="wpa-mobile-url">' . esc_html($truncated_url) . '</span>';
 		}
 		$mobile_info .= '</div>';
 
@@ -144,7 +171,7 @@ final class SA_List_Table extends WP_List_Table {
 	}
 
 	public function no_items(): void {
-		esc_html_e('No analytics events found for the selected filters.', 'server-analytics');
+		esc_html_e('No analytics events found for the selected filters.', 'wp-analytics');
 	}
 
 	/**
@@ -177,8 +204,8 @@ final class SA_List_Table extends WP_List_Table {
 				$parts = explode('|', $url, 2);
 				$button_id = esc_html($parts[0]);
 				$button_name = isset($parts[1]) ? esc_html($parts[1]) : $button_id;
-				return '<span class="sa-conversion-badge" style="background:#4caf50;color:#fff;padding:2px 8px;border-radius:3px;font-size:12px;">' . 
-					   esc_html__('Conversion:', 'server-analytics') . ' ' . $button_name . '</span>' .
+				return '<span class="wpa-conversion-badge" style="background:#4caf50;color:#fff;padding:2px 8px;border-radius:3px;font-size:12px;">' . 
+					   esc_html__('Conversion:', 'wp-analytics') . ' ' . $button_name . '</span>' .
 					   '<br><small style="color:#666;">ID: ' . $button_id . '</small>';
 			}
 
@@ -196,9 +223,9 @@ final class SA_List_Table extends WP_List_Table {
 		if ($column_name === 'event_type') {
 			$type = is_string($value) ? $value : '';
 			$labels = array(
-				'pageview'   => __('Pageview', 'server-analytics'),
-				'link_click' => __('Link Click', 'server-analytics'),
-				'conversion' => __('Conversion', 'server-analytics'),
+				'pageview'   => __('Pageview', 'wp-analytics'),
+				'link_click' => __('Link Click', 'wp-analytics'),
+				'conversion' => __('Conversion', 'wp-analytics'),
 			);
 			$label = $labels[$type] ?? $type;
 			
@@ -219,7 +246,7 @@ final class SA_List_Table extends WP_List_Table {
 	}
 
 	public function prepare_items(): void {
-		$per_page = $this->get_items_per_page('sa_events_per_page', 20);
+		$per_page = $this->get_items_per_page('wpa_events_per_page', 20);
 		$current_page = $this->get_pagenum();
 
 		$columns = $this->get_columns();
@@ -243,7 +270,7 @@ final class SA_List_Table extends WP_List_Table {
 	 */
 	private function query_items(int $per_page, int $page_number, bool $paginate): array {
 		global $wpdb;
-		$table = SA_DB::table_name();
+		$table = WPA_Database::table_name();
 
 		$where = array();
 		$params = array();
@@ -315,7 +342,7 @@ final class SA_List_Table extends WP_List_Table {
 
 	private function count_items(): int {
 		global $wpdb;
-		$table = SA_DB::table_name();
+		$table = WPA_Database::table_name();
 
 		$where = array();
 		$params = array();
