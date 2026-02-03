@@ -95,6 +95,141 @@ final class SA_DB {
 	}
 
 	/**
+	 * Delete a single event by ID.
+	 */
+	public static function delete_event(int $id): bool {
+		if ($id <= 0) {
+			return false;
+		}
+
+		global $wpdb;
+		$table = self::table_name();
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$deleted = $wpdb->delete($table, array('id' => $id), array('%d'));
+
+		return $deleted !== false && $deleted > 0;
+	}
+
+	/**
+	 * Delete multiple events by IDs.
+	 *
+	 * @param int[] $ids
+	 */
+	public static function delete_events(array $ids): int {
+		if (empty($ids)) {
+			return 0;
+		}
+
+		global $wpdb;
+		$table = self::table_name();
+
+		// Sanitize IDs
+		$ids = array_map('absint', $ids);
+		$ids = array_filter($ids, static fn($id) => $id > 0);
+
+		if (empty($ids)) {
+			return 0;
+		}
+
+		// Build placeholders
+		$placeholders = implode(',', array_fill(0, count($ids), '%d'));
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$deleted = $wpdb->query(
+			$wpdb->prepare(
+				"DELETE FROM {$table} WHERE id IN ({$placeholders})",
+				$ids
+			)
+		);
+
+		return is_int($deleted) ? $deleted : 0;
+	}
+
+	/**
+	 * Delete events by date range.
+	 */
+	public static function delete_events_by_date(string $date_from, string $date_to): int {
+		global $wpdb;
+		$table = self::table_name();
+
+		$where = array();
+		$params = array();
+
+		// Validate date formats
+		if ($date_from !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $date_from)) {
+			$where[] = 'created_at >= %s';
+			$params[] = $date_from . ' 00:00:00';
+		}
+		if ($date_to !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $date_to)) {
+			$where[] = 'created_at <= %s';
+			$params[] = $date_to . ' 23:59:59';
+		}
+
+		if (empty($where)) {
+			return 0;
+		}
+
+		$where_sql = 'WHERE ' . implode(' AND ', $where);
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$deleted = $wpdb->query(
+			$wpdb->prepare(
+				"DELETE FROM {$table} {$where_sql}",
+				$params
+			)
+		);
+
+		return is_int($deleted) ? $deleted : 0;
+	}
+
+	/**
+	 * Delete all analytics data.
+	 * Uses batched deletion to prevent table locks.
+	 */
+	public static function delete_all_data(): int {
+		global $wpdb;
+		$table = self::table_name();
+		$total_deleted = 0;
+		$batch_size = 1000;
+		$max_batches = 1000; // Allow up to 1 million rows
+
+		for ($i = 0; $i < $max_batches; $i++) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+			$deleted = $wpdb->query(
+				$wpdb->prepare("DELETE FROM {$table} LIMIT %d", $batch_size)
+			);
+
+			if (!is_int($deleted) || $deleted === 0) {
+				break;
+			}
+
+			$total_deleted += $deleted;
+
+			if ($deleted < $batch_size) {
+				break;
+			}
+
+			usleep(10000); // 10ms delay between batches
+		}
+
+		return $total_deleted;
+	}
+
+	/**
+	 * Get total count of all events.
+	 */
+	public static function get_total_count(): int {
+		global $wpdb;
+		$table = self::table_name();
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$count = $wpdb->get_var("SELECT COUNT(*) FROM {$table}");
+
+		return (int) $count;
+	}
+
+	/**
 	 * Delete old analytics data based on retention setting.
 	 * Uses batched deletion to prevent table locks on large datasets.
 	 */

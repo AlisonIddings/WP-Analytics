@@ -33,6 +33,7 @@ final class SA_List_Table extends WP_List_Table {
 	 */
 	public function get_columns(): array {
 		return array(
+			'cb'           => '<input type="checkbox" />',
 			'created_at'   => __('Date / Time (UTC)', 'server-analytics'),
 			'event_type'   => __('Event', 'server-analytics'),
 			'page_url'     => __('Page URL', 'server-analytics'),
@@ -41,6 +42,64 @@ final class SA_List_Table extends WP_List_Table {
 			'ip_address'   => __('IP address', 'server-analytics'),
 			'time_on_page' => __('Time on page (s)', 'server-analytics'),
 			'scroll_depth' => __('Scroll depth (%)', 'server-analytics'),
+		);
+	}
+
+	/**
+	 * Checkbox column for bulk actions.
+	 *
+	 * @param array<string, mixed> $item
+	 */
+	public function column_cb($item): string {
+		return sprintf(
+			'<input type="checkbox" name="event_ids[]" value="%d" />',
+			absint($item['id'] ?? 0)
+		);
+	}
+
+	/**
+	 * Created at column with row actions.
+	 *
+	 * @param array<string, mixed> $item
+	 */
+	public function column_created_at($item): string {
+		$id = absint($item['id'] ?? 0);
+		$value = $item['created_at'] ?? '';
+		$display = $value === '' ? '&mdash;' : esc_html((string) $value);
+
+		// Build delete URL with nonce
+		$delete_url = wp_nonce_url(
+			add_query_arg(
+				array(
+					'page'   => 'server-analytics',
+					'action' => 'delete',
+					'event'  => $id,
+				),
+				admin_url('admin.php')
+			),
+			'sa_delete_event_' . $id
+		);
+
+		$actions = array(
+			'delete' => sprintf(
+				'<a href="%s" onclick="return confirm(\'%s\');">%s</a>',
+				esc_url($delete_url),
+				esc_js(__('Are you sure you want to delete this entry?', 'server-analytics')),
+				esc_html__('Delete', 'server-analytics')
+			),
+		);
+
+		return $display . $this->row_actions($actions);
+	}
+
+	/**
+	 * Get bulk actions.
+	 *
+	 * @return array<string, string>
+	 */
+	protected function get_bulk_actions(): array {
+		return array(
+			'bulk_delete' => __('Delete', 'server-analytics'),
 		);
 	}
 
@@ -97,7 +156,10 @@ final class SA_List_Table extends WP_List_Table {
 		$per_page = $this->get_items_per_page('sa_events_per_page', 20);
 		$current_page = $this->get_pagenum();
 
-		$this->_column_headers = array($this->get_columns(), array(), $this->get_sortable_columns());
+		$columns = $this->get_columns();
+		$hidden = array();
+		$sortable = $this->get_sortable_columns();
+		$this->_column_headers = array($columns, $hidden, $sortable);
 
 		$this->items = $this->query_items($per_page, $current_page, true);
 		$total_items = $this->count_items();

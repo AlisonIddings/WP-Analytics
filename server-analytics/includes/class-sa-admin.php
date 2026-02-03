@@ -18,6 +18,10 @@ final class SA_Admin {
 
 		add_action('admin_post_sa_export_csv', array(__CLASS__, 'export_csv'));
 		add_action('admin_post_sa_export_pdf', array(__CLASS__, 'export_pdf'));
+
+		// Delete actions
+		add_action('admin_post_sa_delete_by_date', array(__CLASS__, 'handle_delete_by_date'));
+		add_action('admin_post_sa_delete_all', array(__CLASS__, 'handle_delete_all'));
 	}
 
 	public static function register_menu(): void {
@@ -68,6 +72,9 @@ final class SA_Admin {
 			wp_die(esc_html__('You do not have permission to view analytics.', 'server-analytics'));
 		}
 
+		// Process delete actions
+		self::process_delete_actions();
+
 		// Load list table class on demand
 		self::load_list_table_class();
 
@@ -96,9 +103,13 @@ final class SA_Admin {
 			'sa_export'
 		);
 
+		$total_events = SA_DB::get_total_count();
+
 		?>
 		<div class="wrap">
 			<h1><?php echo esc_html__('Server Analytics', 'server-analytics'); ?></h1>
+
+			<?php self::render_admin_notices(); ?>
 
 			<form method="get" action="<?php echo esc_url($base_url); ?>">
 				<input type="hidden" name="page" value="<?php echo esc_attr(self::MENU_SLUG); ?>" />
@@ -152,9 +163,239 @@ final class SA_Admin {
 				<a class="button" href="<?php echo esc_url($pdf_url); ?>"><?php echo esc_html__('Export PDF', 'server-analytics'); ?></a>
 			</div>
 
-			<?php $table->display(); ?>
+			<form method="post" action="<?php echo esc_url(admin_url('admin.php?page=' . self::MENU_SLUG)); ?>">
+				<?php wp_nonce_field('sa_bulk_action', 'sa_bulk_nonce'); ?>
+				<input type="hidden" name="sa_bulk_action" value="1" />
+				<?php $table->display(); ?>
+			</form>
+
+			<hr style="margin: 30px 0;" />
+
+			<h2><?php echo esc_html__('Data Management', 'server-analytics'); ?></h2>
+			<p class="description">
+				<?php
+				printf(
+					/* translators: %s: number of events */
+					esc_html__('Total events in database: %s', 'server-analytics'),
+					'<strong>' . esc_html(number_format_i18n($total_events)) . '</strong>'
+				);
+				?>
+			</p>
+
+			<div class="sa-data-management" style="display: flex; gap: 20px; flex-wrap: wrap; margin-top: 20px;">
+				<!-- Delete by Date Range -->
+				<div class="sa-delete-section" style="background: #fff; border: 1px solid #ccd0d4; padding: 15px; min-width: 300px;">
+					<h3 style="margin-top: 0;"><?php echo esc_html__('Delete by Date Range', 'server-analytics'); ?></h3>
+					<form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+						<?php wp_nonce_field('sa_delete_by_date', 'sa_delete_date_nonce'); ?>
+						<input type="hidden" name="action" value="sa_delete_by_date" />
+						<p>
+							<label for="sa-delete-from"><?php echo esc_html__('From:', 'server-analytics'); ?></label><br />
+							<input type="date" id="sa-delete-from" name="delete_from" required />
+						</p>
+						<p>
+							<label for="sa-delete-to"><?php echo esc_html__('To:', 'server-analytics'); ?></label><br />
+							<input type="date" id="sa-delete-to" name="delete_to" required />
+						</p>
+						<p>
+							<button type="submit" class="button" onclick="return confirm('<?php echo esc_js(__('Are you sure you want to delete events in this date range? This cannot be undone.', 'server-analytics')); ?>');">
+								<?php echo esc_html__('Delete by Date Range', 'server-analytics'); ?>
+							</button>
+						</p>
+					</form>
+				</div>
+
+				<!-- Delete All Data -->
+				<div class="sa-delete-section" style="background: #fff; border: 1px solid #ccd0d4; padding: 15px; min-width: 300px;">
+					<h3 style="margin-top: 0;"><?php echo esc_html__('Delete All Data', 'server-analytics'); ?></h3>
+					<p class="description" style="color: #d63638;">
+						<?php echo esc_html__('Warning: This will permanently delete all analytics data. This action cannot be undone.', 'server-analytics'); ?>
+					</p>
+					<form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+						<?php wp_nonce_field('sa_delete_all', 'sa_delete_all_nonce'); ?>
+						<input type="hidden" name="action" value="sa_delete_all" />
+						<p>
+							<label>
+								<input type="checkbox" name="confirm_delete_all" value="1" required />
+								<?php echo esc_html__('I understand this will delete all data', 'server-analytics'); ?>
+							</label>
+						</p>
+						<p>
+							<button type="submit" class="button" style="background: #d63638; border-color: #d63638; color: #fff;" onclick="return confirm('<?php echo esc_js(__('Are you ABSOLUTELY sure? ALL analytics data will be permanently deleted!', 'server-analytics')); ?>');">
+								<?php echo esc_html__('Delete All Data', 'server-analytics'); ?>
+							</button>
+						</p>
+					</form>
+				</div>
+			</div>
 		</div>
 		<?php
+	}
+
+	/**
+	 * Process single and bulk delete actions.
+	 */
+	private static function process_delete_actions(): void {
+		// Single delete
+		if (isset($_GET['action']) && $_GET['action'] === 'delete' && isset($_GET['event'])) {
+			$event_id = absint($_GET['event']);
+			if ($event_id > 0 && check_admin_referer('sa_delete_event_' . $event_id)) {
+				if (SA_DB::delete_event($event_id)) {
+					set_transient('sa_admin_notice', array(
+						'type'    => 'success',
+						'message' => __('Event deleted successfully.', 'server-analytics'),
+					), 30);
+				} else {
+					set_transient('sa_admin_notice', array(
+						'type'    => 'error',
+						'message' => __('Failed to delete event.', 'server-analytics'),
+					), 30);
+				}
+				wp_safe_redirect(admin_url('admin.php?page=' . self::MENU_SLUG));
+				exit;
+			}
+		}
+
+		// Bulk delete
+		if (isset($_POST['sa_bulk_action']) && isset($_POST['sa_bulk_nonce'])) {
+			if (!wp_verify_nonce($_POST['sa_bulk_nonce'], 'sa_bulk_action')) {
+				wp_die(esc_html__('Security check failed.', 'server-analytics'));
+			}
+
+			$action = isset($_POST['action']) ? sanitize_key($_POST['action']) : '';
+			if ($action === '-1' && isset($_POST['action2'])) {
+				$action = sanitize_key($_POST['action2']);
+			}
+
+			if ($action === 'bulk_delete' && !empty($_POST['event_ids'])) {
+				$ids = array_map('absint', (array) $_POST['event_ids']);
+				$deleted = SA_DB::delete_events($ids);
+
+				if ($deleted > 0) {
+					set_transient('sa_admin_notice', array(
+						'type'    => 'success',
+						'message' => sprintf(
+							/* translators: %d: number of deleted events */
+							_n('%d event deleted successfully.', '%d events deleted successfully.', $deleted, 'server-analytics'),
+							$deleted
+						),
+					), 30);
+				} else {
+					set_transient('sa_admin_notice', array(
+						'type'    => 'error',
+						'message' => __('No events were deleted.', 'server-analytics'),
+					), 30);
+				}
+
+				wp_safe_redirect(admin_url('admin.php?page=' . self::MENU_SLUG));
+				exit;
+			}
+		}
+	}
+
+	/**
+	 * Handle delete by date range action.
+	 */
+	public static function handle_delete_by_date(): void {
+		if (!current_user_can(sa_view_analytics_capability())) {
+			wp_die(esc_html__('You do not have permission to delete analytics.', 'server-analytics'));
+		}
+
+		check_admin_referer('sa_delete_by_date', 'sa_delete_date_nonce');
+
+		$date_from = isset($_POST['delete_from']) ? sanitize_text_field($_POST['delete_from']) : '';
+		$date_to = isset($_POST['delete_to']) ? sanitize_text_field($_POST['delete_to']) : '';
+
+		if ($date_from === '' || $date_to === '') {
+			set_transient('sa_admin_notice', array(
+				'type'    => 'error',
+				'message' => __('Please provide both start and end dates.', 'server-analytics'),
+			), 30);
+			wp_safe_redirect(admin_url('admin.php?page=' . self::MENU_SLUG));
+			exit;
+		}
+
+		$deleted = SA_DB::delete_events_by_date($date_from, $date_to);
+
+		if ($deleted > 0) {
+			set_transient('sa_admin_notice', array(
+				'type'    => 'success',
+				'message' => sprintf(
+					/* translators: %d: number of deleted events */
+					_n('%d event deleted successfully.', '%d events deleted successfully.', $deleted, 'server-analytics'),
+					$deleted
+				),
+			), 30);
+		} else {
+			set_transient('sa_admin_notice', array(
+				'type'    => 'info',
+				'message' => __('No events found in the specified date range.', 'server-analytics'),
+			), 30);
+		}
+
+		wp_safe_redirect(admin_url('admin.php?page=' . self::MENU_SLUG));
+		exit;
+	}
+
+	/**
+	 * Handle delete all data action.
+	 */
+	public static function handle_delete_all(): void {
+		if (!current_user_can(sa_view_analytics_capability())) {
+			wp_die(esc_html__('You do not have permission to delete analytics.', 'server-analytics'));
+		}
+
+		check_admin_referer('sa_delete_all', 'sa_delete_all_nonce');
+
+		if (empty($_POST['confirm_delete_all'])) {
+			set_transient('sa_admin_notice', array(
+				'type'    => 'error',
+				'message' => __('You must confirm that you want to delete all data.', 'server-analytics'),
+			), 30);
+			wp_safe_redirect(admin_url('admin.php?page=' . self::MENU_SLUG));
+			exit;
+		}
+
+		$deleted = SA_DB::delete_all_data();
+
+		set_transient('sa_admin_notice', array(
+			'type'    => 'success',
+			'message' => sprintf(
+				/* translators: %d: number of deleted events */
+				_n('%d event deleted. All analytics data has been removed.', '%d events deleted. All analytics data has been removed.', $deleted, 'server-analytics'),
+				$deleted
+			),
+		), 30);
+
+		wp_safe_redirect(admin_url('admin.php?page=' . self::MENU_SLUG));
+		exit;
+	}
+
+	/**
+	 * Render admin notices.
+	 */
+	private static function render_admin_notices(): void {
+		$notice = get_transient('sa_admin_notice');
+		if (!$notice || !is_array($notice)) {
+			return;
+		}
+
+		delete_transient('sa_admin_notice');
+
+		$type = in_array($notice['type'] ?? '', array('success', 'error', 'warning', 'info'), true)
+			? $notice['type']
+			: 'info';
+		$message = $notice['message'] ?? '';
+
+		if ($message === '') {
+			return;
+		}
+
+		printf(
+			'<div class="notice notice-%s is-dismissible"><p>%s</p></div>',
+			esc_attr($type),
+			esc_html($message)
+		);
 	}
 
 	private static function assert_export_access(): void {
