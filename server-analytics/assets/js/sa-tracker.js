@@ -142,10 +142,12 @@
 
   function sendEngagementFinal() {
     if (sentFinal) return;
+    // Check pageviewId BEFORE setting sentFinal to avoid race condition
+    // where quick page exit marks sentFinal=true before pageview completes
+    if (!pageviewId) return;
     sentFinal = true;
     var seconds = Math.round((Date.now() - startMs) / 1000);
     var depth = clamp(maxScroll, 0, 100);
-    if (!pageviewId) return;
     postJson(
       "/engagement",
       {

@@ -71,7 +71,10 @@ final class SA_REST {
 	 */
 	private static function validate_request(WP_REST_Request $request): true|WP_Error {
 		$token = (string) $request->get_param('token');
-		if (!hash_equals(SA_DB::get_public_token(), $token)) {
+		$stored_token = SA_DB::get_public_token();
+
+		// Ensure stored token exists and is non-empty to prevent bypass with empty token
+		if ($stored_token === '' || $token === '' || !hash_equals($stored_token, $token)) {
 			return new WP_Error('sa_invalid_token', __('Invalid token.', 'server-analytics'), array('status' => 403));
 		}
 
