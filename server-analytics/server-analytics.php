@@ -1,13 +1,17 @@
 <?php
 /**
- * Plugin Name: Server Analytics (Pageviews + Engagement)
- * Description: Collects server-side analytics for pageviews, referrers, link clicks, time on page, and scroll depth. Includes a dashboard report with filtering, sorting, and CSV/PDF exports.
+ * Plugin Name: Server Analytics
+ * Plugin URI: https://example.com/server-analytics
+ * Description: Collects server-side analytics for pageviews, referrers, link clicks, time on page, and scroll depth. Includes a dashboard report with filtering, sorting, and CSV/PDF exports. GDPR-friendly with IP anonymization option.
  * Version: 1.0.0
  * Requires at least: 6.0
  * Requires PHP: 7.4
- * Author: (Generated)
+ * Author: Your Name
+ * Author URI: https://example.com
  * License: GPLv2 or later
+ * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain: server-analytics
+ * Domain Path: /languages
  */
 
 declare(strict_types=1);
@@ -38,19 +42,63 @@ function sa_view_analytics_capability(): string {
 	return is_string($cap) && $cap !== '' ? $cap : 'edit_pages';
 }
 
-register_activation_hook(SA_PLUGIN_FILE, array('SA_DB', 'activate'));
+register_activation_hook(SA_PLUGIN_FILE, 'sa_activate');
+register_deactivation_hook(SA_PLUGIN_FILE, 'sa_deactivate');
 register_uninstall_hook(SA_PLUGIN_FILE, 'sa_uninstall');
+
+function sa_activate(): void {
+	SA_DB::activate();
+	// Schedule daily cleanup of old data
+	if (!wp_next_scheduled('sa_daily_cleanup')) {
+		wp_schedule_event(time(), 'daily', 'sa_daily_cleanup');
+	}
+}
+
+function sa_deactivate(): void {
+	wp_clear_scheduled_hook('sa_daily_cleanup');
+}
 
 function sa_uninstall(): void {
 	require_once SA_PLUGIN_DIR . 'includes/class-sa-db.php';
 	SA_DB::uninstall();
 }
 
+add_action('sa_daily_cleanup', array('SA_DB', 'cleanup_old_data'));
+
 add_action(
 	'plugins_loaded',
 	static function (): void {
 		SA_REST::init();
 		SA_Admin::init();
+	}
+);
+
+/**
+ * Add privacy policy content for GDPR compliance.
+ */
+add_action(
+	'admin_init',
+	static function (): void {
+		if (!function_exists('wp_add_privacy_policy_content')) {
+			return;
+		}
+
+		$content = sprintf(
+			'<h2>%s</h2><p>%s</p><p>%s</p><p>%s</p>',
+			__('Analytics Data Collection', 'server-analytics'),
+			__('This website uses Server Analytics to collect anonymous usage data to improve user experience. The following data may be collected:', 'server-analytics'),
+			__('- Page URLs visited<br>- Referrer URLs<br>- Links clicked<br>- Time spent on pages<br>- Scroll depth<br>- IP address (anonymized by default)<br>- Browser user agent', 'server-analytics'),
+			sprintf(
+				/* translators: %d: number of days */
+				__('This data is stored locally on this website and automatically deleted after %d days. No data is shared with third parties.', 'server-analytics'),
+				SA_DB::get_data_retention_days()
+			)
+		);
+
+		wp_add_privacy_policy_content(
+			'Server Analytics',
+			wp_kses_post($content)
+		);
 	}
 );
 

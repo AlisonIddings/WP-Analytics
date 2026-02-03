@@ -1,39 +1,106 @@
-=== Server Analytics (Pageviews + Engagement) ===
-Contributors: (generated)
-Tags: analytics, pageviews, engagement
+=== Server Analytics ===
+Contributors: yourwordpressusername
+Donate link: https://example.com/donate
+Tags: analytics, pageviews, engagement, statistics, tracking
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 7.4
 Stable tag: 1.0.0
 License: GPLv2 or later
+License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Collects server-side analytics for pageviews, referrers, link clicks, time on page, and scroll depth, and provides an accessible dashboard report with filtering, sorting, and CSV/PDF exports.
+Privacy-focused, server-side analytics for WordPress. Track pageviews, engagement, and link clicks without external services.
+
+== Description ==
+
+Server Analytics is a lightweight, privacy-focused analytics plugin that collects pageview and engagement data entirely on your own server. No data is sent to third-party services.
+
+**Features:**
+
+* Track pageviews, referrers, and link clicks
+* Measure time on page and scroll depth
+* Filter and sort analytics in a dashboard
+* Export data to CSV or PDF
+* GDPR-friendly with IP anonymization (enabled by default)
+* Automatic data retention and cleanup
+* Rate limiting to prevent abuse
+* No external dependencies or tracking scripts from third parties
+
+**Privacy First:**
+
+* IP addresses are anonymized by default (last octet removed for IPv4, last 80 bits for IPv6)
+* Automatic data deletion after configurable retention period (default: 90 days)
+* All data stays on your server
+* Integrates with WordPress Privacy Policy page
+
+**For Developers:**
+
+Override the capability required to view analytics:
+
+`add_filter('sa_view_analytics_capability', fn() => 'manage_options');`
 
 == Installation ==
 
-1. Copy the `server-analytics/` folder into `wp-content/plugins/`.
-2. Activate "Server Analytics (Pageviews + Engagement)" in Plugins.
-3. Visit Dashboard → Server Analytics.
+1. Upload the `server-analytics` folder to `/wp-content/plugins/`
+2. Activate the plugin through the 'Plugins' menu in WordPress
+3. Visit Dashboard → Server Analytics to view your data
 
-== What’s Collected ==
+The plugin starts collecting data automatically upon activation.
 
-- Pageview (page URL)
-- Referrer URL (when available)
-- Link clicked on page (captured as link click events)
-- Date/time (UTC)
-- IP address (as seen by the server)
-- Time on page (seconds)
-- Scroll depth (max %)
+== Frequently Asked Questions ==
 
-== Permissions ==
+= Does this plugin use cookies? =
 
-Admins and Editors can view/export by default (capability: `edit_pages`).
-Override via:
+No, this plugin does not use cookies. It uses browser localStorage to maintain a session identifier for grouping pageviews.
 
-	add_filter('sa_view_analytics_capability', fn() => 'manage_options');
+= Is this plugin GDPR compliant? =
 
-== Notes ==
+The plugin is designed with privacy in mind. IP addresses are anonymized by default, data is automatically deleted after a retention period, and no data is shared with third parties. However, you should still disclose analytics collection in your privacy policy. The plugin automatically suggests text for your Privacy Policy page.
 
-- Engagement is recorded on `pagehide`/when the tab is hidden (best-effort).
-- PDF export is a dependency-free, single-page text PDF intended for simple reporting.
+= Where is the data stored? =
 
+All analytics data is stored in your WordPress database in a custom table (`{prefix}_sa_events`). No data is sent to external servers.
+
+= How do I export my data? =
+
+Visit Dashboard → Server Analytics and use the "Export CSV" or "Export PDF" buttons. You can filter the data before exporting.
+
+= Can I disable IP tracking entirely? =
+
+IP addresses are already anonymized by default. The anonymized IP helps with basic geographic insights while protecting visitor privacy.
+
+= How do I change the data retention period? =
+
+The default retention period is 90 days. You can modify this using the filter:
+
+`add_filter('sa_data_retention_days', fn() => 30); // Keep data for 30 days`
+
+Or set it to 0 to keep data indefinitely (not recommended for GDPR compliance).
+
+= What capabilities are required to view analytics? =
+
+By default, users with the `edit_pages` capability (Editors and above) can view and export analytics. You can change this with the `sa_view_analytics_capability` filter.
+
+== Screenshots ==
+
+1. Analytics dashboard with filtering and sorting
+2. CSV export of analytics data
+3. PDF report generation
+
+== Changelog ==
+
+= 1.0.0 =
+* Initial release
+* Pageview and engagement tracking
+* Link click tracking
+* Dashboard with filtering and sorting
+* CSV and PDF export
+* IP anonymization (enabled by default)
+* Automatic data retention and cleanup
+* Rate limiting for API endpoints
+* Privacy policy integration
+
+== Upgrade Notice ==
+
+= 1.0.0 =
+Initial release of Server Analytics.

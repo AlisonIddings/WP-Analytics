@@ -129,11 +129,12 @@ final class SA_List_Table extends WP_List_Table {
 		$date_from = isset($this->filters['date_from']) ? sanitize_text_field((string) $this->filters['date_from']) : '';
 		$date_to   = isset($this->filters['date_to']) ? sanitize_text_field((string) $this->filters['date_to']) : '';
 
-		if ($date_from !== '') {
+		// Validate date format (YYYY-MM-DD) to prevent SQL injection
+		if ($date_from !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $date_from)) {
 			$where[] = 'created_at >= %s';
 			$params[] = $date_from . ' 00:00:00';
 		}
-		if ($date_to !== '') {
+		if ($date_to !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $date_to)) {
 			$where[] = 'created_at <= %s';
 			$params[] = $date_to . ' 23:59:59';
 		}
@@ -196,11 +197,12 @@ final class SA_List_Table extends WP_List_Table {
 		$date_from = isset($this->filters['date_from']) ? sanitize_text_field((string) $this->filters['date_from']) : '';
 		$date_to   = isset($this->filters['date_to']) ? sanitize_text_field((string) $this->filters['date_to']) : '';
 
-		if ($date_from !== '') {
+		// Validate date format (YYYY-MM-DD) to prevent SQL injection
+		if ($date_from !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $date_from)) {
 			$where[] = 'created_at >= %s';
 			$params[] = $date_from . ' 00:00:00';
 		}
-		if ($date_to !== '') {
+		if ($date_to !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $date_to)) {
 			$where[] = 'created_at <= %s';
 			$params[] = $date_to . ' 23:59:59';
 		}

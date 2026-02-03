@@ -8,6 +8,8 @@ if (!defined('ABSPATH')) {
 
 final class SA_REST {
 	private const NAMESPACE = 'server-analytics/v1';
+	private const RATE_LIMIT_WINDOW = 60; // seconds
+	private const RATE_LIMIT_MAX_REQUESTS = 30; // max requests per window per IP
 
 	public static function init(): void {
 		add_action('rest_api_init', array(__CLASS__, 'register_routes'));
@@ -83,6 +85,37 @@ final class SA_REST {
 			return new WP_Error('sa_invalid_origin', __('Invalid origin.', 'server-analytics'), array('status' => 403));
 		}
 
+		// Rate limiting to prevent abuse
+		$rate_check = self::check_rate_limit();
+		if (is_wp_error($rate_check)) {
+			return $rate_check;
+		}
+
+		return true;
+	}
+
+	/**
+	 * Simple rate limiting using transients.
+	 * Limits requests per IP to prevent abuse/DoS.
+	 */
+	private static function check_rate_limit(): true|WP_Error {
+		$ip = self::client_ip_raw();
+		if ($ip === '') {
+			return true; // Can't rate limit without IP
+		}
+
+		$key = 'sa_rate_' . md5($ip);
+		$count = (int) get_transient($key);
+
+		if ($count >= self::RATE_LIMIT_MAX_REQUESTS) {
+			return new WP_Error(
+				'sa_rate_limited',
+				__('Too many requests. Please try again later.', 'server-analytics'),
+				array('status' => 429)
+			);
+		}
+
+		set_transient($key, $count + 1, self::RATE_LIMIT_WINDOW);
 		return true;
 	}
 
@@ -124,7 +157,7 @@ final class SA_REST {
 		$referrer = esc_url_raw((string) $request->get_param('referrer'));
 		$session  = sanitize_text_field((string) $request->get_param('session'));
 		$ip       = self::client_ip();
-		$ua       = isset($_SERVER['HTTP_USER_AGENT']) ? substr((string) $_SERVER['HTTP_USER_AGENT'], 0, 1000) : '';
+		$ua       = self::sanitize_user_agent();
 
 		$sql = "INSERT INTO {$table}
 			(event_type, session_id, page_url, referrer_url, ip_address, user_agent, time_on_page, scroll_depth, created_at)
@@ -213,7 +246,7 @@ final class SA_REST {
 		}
 
 		$ip = self::client_ip();
-		$ua = isset($_SERVER['HTTP_USER_AGENT']) ? substr((string) $_SERVER['HTTP_USER_AGENT'], 0, 1000) : '';
+		$ua = self::sanitize_user_agent();
 
 		$sql = "INSERT INTO {$table}
 			(event_type, pageview_id, session_id, page_url, referrer_url, link_url, ip_address, user_agent, time_on_page, scroll_depth, created_at)
@@ -240,13 +273,49 @@ final class SA_REST {
 		return new WP_REST_Response(array('ok' => true), 200);
 	}
 
-	private static function client_ip(): string {
+	/**
+	 * Sanitize user agent string.
+	 */
+	private static function sanitize_user_agent(): string {
+		if (empty($_SERVER['HTTP_USER_AGENT'])) {
+			return '';
+		}
+
+		$ua = (string) $_SERVER['HTTP_USER_AGENT'];
+		// Limit length
+		$ua = substr($ua, 0, 500);
+		// Remove any potentially dangerous characters
+		$ua = wp_strip_all_tags($ua);
+		// Remove control characters
+		$ua = preg_replace('/[\x00-\x1F\x7F]/', '', $ua);
+
+		return is_string($ua) ? $ua : '';
+	}
+
+	/**
+	 * Get raw client IP for rate limiting.
+	 */
+	private static function client_ip_raw(): string {
 		$ip = '';
 		if (!empty($_SERVER['REMOTE_ADDR'])) {
 			$ip = (string) $_SERVER['REMOTE_ADDR'];
 		}
 		$ip = preg_replace('/[^0-9a-fA-F:\.]/', '', $ip);
 		return is_string($ip) ? substr($ip, 0, 45) : '';
+	}
+
+	/**
+	 * Get client IP for storage (respects anonymization setting).
+	 */
+	private static function client_ip(): string {
+		$ip = self::client_ip_raw();
+
+		// Anonymize IP if enabled (GDPR compliance)
+		if (SA_DB::is_ip_anonymization_enabled()) {
+			$ip = SA_DB::anonymize_ip($ip);
+		}
+
+		return $ip;
 	}
 }
 
