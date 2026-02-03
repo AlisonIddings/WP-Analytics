@@ -386,7 +386,14 @@ final class SA_REST {
 		$table = SA_DB::table_name();
 
 		$pageview_id = absint($request->get_param('pageview_id'));
-		$button_id = sanitize_html_class((string) $request->get_param('button_id'));
+		$raw_button_id = (string) $request->get_param('button_id');
+		
+		// Limit button ID length before sanitization to prevent abuse
+		if (strlen($raw_button_id) > 100) {
+			return new WP_Error('sa_invalid_button', __('Button ID too long.', 'server-analytics'), array('status' => 400));
+		}
+		
+		$button_id = sanitize_html_class($raw_button_id);
 		$page_url = self::validate_url((string) $request->get_param('page_url'));
 		$session = self::validate_session_id((string) $request->get_param('session'));
 

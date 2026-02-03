@@ -271,6 +271,8 @@
   // Conversion tracking for specific button IDs
   var conversionButtons = settings.conversionButtons || [];
   var trackedConversions = {}; // Prevent duplicate tracking per session
+  var trackedConversionCount = 0;
+  var MAX_TRACKED_CONVERSIONS = 100; // Limit to prevent memory issues
 
   if (conversionButtons.length > 0) {
     document.addEventListener(
@@ -292,17 +294,21 @@
 
         if (!buttonId) return;
         
+        // Validate button ID length (must match server-side limit)
+        if (buttonId.length > 100) return;
+        
         // Prevent duplicate tracking for same button in same pageview
         var trackKey = pageviewId + "_" + buttonId;
         if (trackedConversions[trackKey]) return;
+        
+        // Limit total tracked conversions to prevent memory issues
+        if (trackedConversionCount >= MAX_TRACKED_CONVERSIONS) return;
+        
         trackedConversions[trackKey] = true;
+        trackedConversionCount++;
 
         // Wait for pageview ID if not yet available
         if (!pageviewId || !sessionId) {
-          // Store for later (limited)
-          if (Object.keys(trackedConversions).length < 10) {
-            trackedConversions[buttonId] = "pending";
-          }
           return;
         }
 

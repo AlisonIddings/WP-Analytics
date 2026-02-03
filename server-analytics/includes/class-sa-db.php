@@ -319,15 +319,26 @@ final class SA_DB {
 			$buttons = array();
 		}
 
-		// Validate and sanitize
+		$max_id_length = 100;
+		$max_name_length = 100;
+
+		// Validate and sanitize (defensive - in case DB was modified directly)
 		$valid_buttons = array();
 		foreach ($buttons as $button) {
 			if (is_array($button) && !empty($button['id'])) {
-				$valid_buttons[] = array(
-					'id'      => sanitize_html_class($button['id']),
-					'name'    => sanitize_text_field($button['name'] ?? $button['id']),
-					'enabled' => !empty($button['enabled']),
-				);
+				$raw_id = substr((string) $button['id'], 0, $max_id_length);
+				$id = sanitize_html_class($raw_id);
+				
+				if ($id !== '') {
+					$raw_name = substr((string) ($button['name'] ?? $id), 0, $max_name_length);
+					$name = sanitize_text_field($raw_name);
+					
+					$valid_buttons[] = array(
+						'id'      => $id,
+						'name'    => $name !== '' ? $name : $id,
+						'enabled' => !empty($button['enabled']),
+					);
+				}
 			}
 		}
 
@@ -353,18 +364,35 @@ final class SA_DB {
 
 	/**
 	 * Set conversion button configurations.
+	 * Limited to MAX_CONVERSION_BUTTONS to prevent abuse.
 	 *
 	 * @param array<int, array{id: string, name: string, enabled: bool}> $buttons
 	 */
 	public static function set_conversion_buttons(array $buttons): void {
 		$valid_buttons = array();
+		$max_buttons = 50; // Reasonable limit to prevent abuse
+		$max_id_length = 100;
+		$max_name_length = 100;
+
 		foreach ($buttons as $button) {
+			// Stop if we've reached the limit
+			if (count($valid_buttons) >= $max_buttons) {
+				break;
+			}
+
 			if (is_array($button) && !empty($button['id'])) {
-				$id = sanitize_html_class($button['id']);
+				// Truncate ID before sanitization
+				$raw_id = substr((string) $button['id'], 0, $max_id_length);
+				$id = sanitize_html_class($raw_id);
+				
 				if ($id !== '') {
+					// Truncate name and sanitize
+					$raw_name = substr((string) ($button['name'] ?? $id), 0, $max_name_length);
+					$name = sanitize_text_field($raw_name);
+					
 					$valid_buttons[] = array(
 						'id'      => $id,
-						'name'    => sanitize_text_field($button['name'] ?? $id),
+						'name'    => $name !== '' ? $name : $id,
 						'enabled' => !empty($button['enabled']),
 					);
 				}
