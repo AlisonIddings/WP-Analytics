@@ -59,30 +59,41 @@ final class WPA_Admin {
 	 * Register admin menu pages.
 	 *
 	 * Creates the main WP Analytics menu and subpages:
-	 * - Dashboard (main analytics view)
+	 * - Overview (charts and trends)
+	 * - Events (detailed event log)
 	 * - Settings (configuration options)
 	 *
 	 * @return void
 	 */
 	public static function register_menu(): void {
-		// Main menu page
+		// Main menu page - Analytics Overview
 		add_menu_page(
 			__( 'WP Analytics', 'wp-analytics' ),
 			__( 'WP Analytics', 'wp-analytics' ),
 			wpa_view_analytics_capability(),
 			self::MENU_SLUG,
-			array( __CLASS__, 'render_page' ),
+			array( __CLASS__, 'render_overview_page' ),
 			'dashicons-chart-area',
 			65
 		);
 
-		// Dashboard submenu (same as main)
+		// Overview submenu (same as main)
 		add_submenu_page(
 			self::MENU_SLUG,
-			__( 'Analytics Dashboard', 'wp-analytics' ),
-			__( 'Dashboard', 'wp-analytics' ),
+			__( 'Analytics Overview', 'wp-analytics' ),
+			__( 'Overview', 'wp-analytics' ),
 			wpa_view_analytics_capability(),
 			self::MENU_SLUG,
+			array( __CLASS__, 'render_overview_page' )
+		);
+
+		// Events log submenu
+		add_submenu_page(
+			self::MENU_SLUG,
+			__( 'Event Log', 'wp-analytics' ),
+			__( 'Event Log', 'wp-analytics' ),
+			wpa_view_analytics_capability(),
+			self::MENU_SLUG . '-events',
 			array( __CLASS__, 'render_page' )
 		);
 
@@ -95,6 +106,16 @@ final class WPA_Admin {
 			self::MENU_SLUG . '-settings',
 			array( __CLASS__, 'render_settings_page' )
 		);
+	}
+
+	/**
+	 * Render the analytics overview page.
+	 *
+	 * @return void
+	 */
+	public static function render_overview_page(): void {
+		self::load_analytics_class();
+		WPA_Analytics::render_page();
 	}
 
 	/**
@@ -117,6 +138,17 @@ final class WPA_Admin {
 			array(),
 			WPA_PLUGIN_VERSION
 		);
+	}
+
+	/**
+	 * Load the analytics class on demand.
+	 *
+	 * @return void
+	 */
+	private static function load_analytics_class(): void {
+		if ( ! class_exists( 'WPA_Analytics' ) ) {
+			require_once WPA_PLUGIN_DIR . 'includes/class-wpa-analytics.php';
+		}
 	}
 
 	/**

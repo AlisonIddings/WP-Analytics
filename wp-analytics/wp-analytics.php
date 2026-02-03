@@ -3,7 +3,7 @@
  * Plugin Name: WP Analytics
  * Plugin URI: https://alisoniddings.com/wp-analytics
  * Description: Privacy-focused analytics for WordPress. Track pageviews, engagement, link clicks, and conversions without external services. GDPR-friendly with IP anonymization.
- * Version: 1.1.0
+ * Version: 1.2.0
  * Requires at least: 6.0
  * Requires PHP: 7.4
  * Author: Alison Iddings
@@ -31,7 +31,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * and URLs. They should not be modified during runtime.
  */
 
-define( 'WPA_PLUGIN_VERSION', '1.1.0' );
+define( 'WPA_PLUGIN_VERSION', '1.2.0' );
 define( 'WPA_PLUGIN_FILE', __FILE__ );
 define( 'WPA_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WPA_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -135,8 +135,27 @@ function wpa_uninstall(): void {
 	WPA_Database::uninstall();
 }
 
-// Hook the daily cleanup function to our scheduled event
-add_action( 'wpa_daily_cleanup', array( 'WPA_Database', 'cleanup_old_data' ) );
+// Hook the daily cleanup and aggregation functions to our scheduled event
+add_action( 'wpa_daily_cleanup', 'wpa_run_daily_tasks' );
+
+/**
+ * Run daily maintenance tasks.
+ *
+ * Aggregates yesterday's data into efficient stats table,
+ * then cleans up old events and stats based on retention settings.
+ *
+ * @return void
+ */
+function wpa_run_daily_tasks(): void {
+	// First, aggregate yesterday's events into daily stats
+	WPA_Database::aggregate_daily_stats();
+
+	// Then cleanup old event data
+	WPA_Database::cleanup_old_data();
+
+	// Finally cleanup old aggregated stats
+	WPA_Database::cleanup_old_stats();
+}
 
 /*
  * =============================================================================

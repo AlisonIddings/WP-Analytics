@@ -5,7 +5,7 @@ Tags: analytics, pageviews, engagement, statistics, tracking, conversions
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.1.0
+Stable tag: 1.2.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -17,14 +17,18 @@ WP Analytics is a lightweight, privacy-focused analytics plugin that collects pa
 
 **Features:**
 
+* **Analytics Overview Dashboard** - Visual charts and top pages at a glance
+* **Traffic Trends** - Month-over-month and year-over-year comparison charts
+* **Top Pages Report** - See your most visited pages with engagement metrics
 * Track pageviews, referrers, and link clicks
 * Measure time on page and scroll depth
 * **Custom conversion tracking** - Track button clicks by element ID
-* Filter and sort analytics in a dashboard
+* Filter and sort analytics in a detailed event log
 * Export data to CSV or PDF
 * Exclude specific post types or URLs from tracking
 * Whitelist mode to only track specific URLs
 * GDPR-friendly with IP anonymization (enabled by default)
+* **Efficient long-term storage** - Daily aggregates for fast historical queries
 * Automatic data retention and cleanup
 * Rate limiting to prevent abuse
 * No external dependencies or tracking scripts from third parties
@@ -103,6 +107,18 @@ By default, users with the `edit_pages` capability (Editors and above) can view 
 
 == Changelog ==
 
+= 1.2.0 =
+* **New Analytics Overview page** with summary statistics cards
+* Added traffic trends chart with month-over-month and year-over-year views
+* Added top pages report showing pageviews, sessions, and conversions
+* Improved UI with modern card-based design
+* URLs now display as relative paths (cleaner, more readable)
+* Added efficient daily stats aggregation for long-term data storage
+* Stats are retained 3x longer than raw events (respects compliance settings)
+* Better mobile responsive design throughout
+* Event Log moved to dedicated submenu page
+* Performance improvements for large datasets
+
 = 1.1.0 =
 * Added custom conversion tracking for buttons by element ID
 * Added settings page for tracking configuration
@@ -127,6 +143,9 @@ By default, users with the `edit_pages` capability (Editors and above) can view 
 * Privacy policy integration
 
 == Upgrade Notice ==
+
+= 1.2.0 =
+Major update: New Analytics Overview dashboard with charts and top pages. Improved UI and efficient long-term storage. Update recommended!
 
 = 1.1.0 =
 New features: Conversion tracking, URL filtering, and data management tools. Update recommended for all users.

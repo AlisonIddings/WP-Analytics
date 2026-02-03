@@ -162,8 +162,10 @@ final class WPA_List_Table extends WP_List_Table {
 		$mobile_info = '<div class="wpa-mobile-info">';
 		$mobile_info .= '<span class="' . $event_class . '">' . esc_html($event_label) . '</span>';
 		if ($page_url !== '') {
-			$truncated_url = strlen($page_url) > 50 ? substr($page_url, 0, 47) . '...' : $page_url;
-			$mobile_info .= '<span class="wpa-mobile-url">' . esc_html($truncated_url) . '</span>';
+			// Show relative path in mobile view
+			$relative_path = self::extract_relative_path($page_url);
+			$truncated_path = strlen($relative_path) > 50 ? substr($relative_path, 0, 47) . '...' : $relative_path;
+			$mobile_info .= '<span class="wpa-mobile-url">' . esc_html($truncated_path) . '</span>';
 		}
 		$mobile_info .= '</div>';
 
@@ -182,17 +184,20 @@ final class WPA_List_Table extends WP_List_Table {
 		$value = $item[$column_name] ?? '';
 		$event_type = $item['event_type'] ?? '';
 
+		// Display URLs as relative paths but link to full URL
 		if (in_array($column_name, array('page_url', 'referrer_url'), true)) {
 			$url = is_string($value) ? $value : '';
 			if ($url === '') {
 				return '&mdash;';
 			}
-			$label = esc_html(self::truncate($url, 70));
-			$href  = esc_url($url);
-			return '<a href="' . $href . '" target="_blank" rel="noopener noreferrer">' . $label . '</a>';
+			// Extract relative path for display
+			$path = self::extract_relative_path($url);
+			$display_path = esc_html(self::truncate($path, 60));
+			$href = esc_url($url);
+			return '<a href="' . $href . '" target="_blank" rel="noopener noreferrer" title="' . esc_attr($url) . '">' . $display_path . '</a>';
 		}
 
-		// Special handling for link_url - show conversion button info
+		// Special handling for link_url - show conversion button info or relative path
 		if ($column_name === 'link_url') {
 			$url = is_string($value) ? $value : '';
 			if ($url === '') {
@@ -204,14 +209,16 @@ final class WPA_List_Table extends WP_List_Table {
 				$parts = explode('|', $url, 2);
 				$button_id = esc_html($parts[0]);
 				$button_name = isset($parts[1]) ? esc_html($parts[1]) : $button_id;
-				return '<span class="wpa-conversion-badge" style="background:#4caf50;color:#fff;padding:2px 8px;border-radius:3px;font-size:12px;">' . 
-					   esc_html__('Conversion:', 'wp-analytics') . ' ' . $button_name . '</span>' .
-					   '<br><small style="color:#666;">ID: ' . $button_id . '</small>';
+				return '<span class="wpa-conversion-badge">' . 
+					   esc_html($button_name) . '</span>' .
+					   '<br><small class="wpa-muted">ID: ' . $button_id . '</small>';
 			}
 
-			$label = esc_html(self::truncate($url, 70));
-			$href  = esc_url($url);
-			return '<a href="' . $href . '" target="_blank" rel="noopener noreferrer">' . $label . '</a>';
+			// Show relative path for link URLs
+			$path = self::extract_relative_path($url);
+			$display_path = esc_html(self::truncate($path, 50));
+			$href = esc_url($url);
+			return '<a href="' . $href . '" target="_blank" rel="noopener noreferrer" title="' . esc_attr($url) . '">' . $display_path . '</a>';
 		}
 
 		if (in_array($column_name, array('time_on_page', 'scroll_depth'), true)) {
@@ -390,6 +397,36 @@ final class WPA_List_Table extends WP_List_Table {
 			return $s;
 		}
 		return substr($s, 0, max(0, $max - 1)) . '…';
+	}
+
+	/**
+	 * Extract relative path from a full URL.
+	 *
+	 * @param string $url Full URL.
+	 * @return string Relative path (e.g., /blog/my-post/)
+	 */
+	private static function extract_relative_path(string $url): string {
+		$parsed = wp_parse_url($url);
+		
+		// Build path with query string if present
+		$path = $parsed['path'] ?? '/';
+		
+		// Ensure path starts with /
+		if (strpos($path, '/') !== 0) {
+			$path = '/' . $path;
+		}
+		
+		// Add query string if present
+		if (!empty($parsed['query'])) {
+			$path .= '?' . $parsed['query'];
+		}
+		
+		// Add fragment if present
+		if (!empty($parsed['fragment'])) {
+			$path .= '#' . $parsed['fragment'];
+		}
+		
+		return $path;
 	}
 }
 

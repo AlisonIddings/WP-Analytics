@@ -35,8 +35,11 @@ final class WPA_Database {
 	 * =========================================================================
 	 */
 
-	/** @var string Database table name suffix (prefixed with $wpdb->prefix) */
+	/** @var string Database table name suffix for events */
 	public const TABLE_SLUG = 'wpa_events';
+
+	/** @var string Database table name suffix for daily aggregates */
+	public const TABLE_STATS_SLUG = 'wpa_daily_stats';
 
 	/** @var string Option key for database version */
 	private const OPTION_DB_VERSION = 'wpa_db_version';
@@ -66,7 +69,7 @@ final class WPA_Database {
 	private const OPTION_CONVERSION_BUTTONS = 'wpa_conversion_buttons';
 
 	/** @var string Current database schema version */
-	private const DB_VERSION = '1.1.0';
+	private const DB_VERSION = '1.2.0';
 
 	/*
 	 * =========================================================================
@@ -95,7 +98,17 @@ final class WPA_Database {
 	}
 
 	/**
-	 * Activate the plugin - create database table and set defaults.
+	 * Get the daily stats table name with WordPress prefix.
+	 *
+	 * @return string Full table name (e.g., 'wp_wpa_daily_stats')
+	 */
+	public static function stats_table_name(): string {
+		global $wpdb;
+		return $wpdb->prefix . self::TABLE_STATS_SLUG;
+	}
+
+	/**
+	 * Activate the plugin - create database tables and set defaults.
 	 *
 	 * Called during plugin activation via register_activation_hook().
 	 *
@@ -103,6 +116,7 @@ final class WPA_Database {
 	 */
 	public static function activate(): void {
 		self::maybe_create_table();
+		self::maybe_create_stats_table();
 		self::maybe_seed_public_token();
 		self::maybe_set_default_options();
 	}
@@ -122,6 +136,11 @@ final class WPA_Database {
 		$table = self::table_name();
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange
 		$wpdb->query( "DROP TABLE IF EXISTS {$table}" );
+
+		// Drop the daily stats table
+		$stats_table = self::stats_table_name();
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange
+		$wpdb->query( "DROP TABLE IF EXISTS {$stats_table}" );
 
 		// Remove all plugin options
 		delete_option( self::OPTION_DB_VERSION );
@@ -953,5 +972,336 @@ final class WPA_Database {
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange
 			$wpdb->query( "ALTER TABLE {$table} ADD INDEX ip_address (ip_address)" );
 		}
+	}
+
+	/**
+	 * Create the daily stats aggregation table.
+	 *
+	 * This table stores pre-computed daily statistics per page URL,
+	 * enabling efficient long-term reporting without querying the
+	 * full events table.
+	 *
+	 * @return void
+	 */
+	private static function maybe_create_stats_table(): void {
+		global $wpdb;
+
+		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+
+		$table           = self::stats_table_name();
+		$charset_collate = $wpdb->get_charset_collate();
+
+		/*
+		 * Daily stats table schema:
+		 * - id: Unique record identifier
+		 * - stat_date: The date for this aggregate (YYYY-MM-DD)
+		 * - page_path: Relative URL path (without domain)
+		 * - pageviews: Total pageview count
+		 * - unique_sessions: Count of distinct sessions
+		 * - avg_time_on_page: Average seconds on page
+		 * - avg_scroll_depth: Average scroll percentage
+		 * - link_clicks: Total link clicks
+		 * - conversions: Total conversion events
+		 */
+		$sql = "CREATE TABLE {$table} (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			stat_date DATE NOT NULL,
+			page_path VARCHAR(500) NOT NULL,
+			pageviews INT UNSIGNED NOT NULL DEFAULT 0,
+			unique_sessions INT UNSIGNED NOT NULL DEFAULT 0,
+			avg_time_on_page INT UNSIGNED NOT NULL DEFAULT 0,
+			avg_scroll_depth TINYINT UNSIGNED NOT NULL DEFAULT 0,
+			link_clicks INT UNSIGNED NOT NULL DEFAULT 0,
+			conversions INT UNSIGNED NOT NULL DEFAULT 0,
+			PRIMARY KEY  (id),
+			UNIQUE KEY date_path (stat_date, page_path(191)),
+			KEY stat_date (stat_date),
+			KEY page_path (page_path(191))
+		) {$charset_collate};";
+
+		dbDelta( $sql );
+	}
+
+	/*
+	 * =========================================================================
+	 * ANALYTICS AGGREGATION
+	 * =========================================================================
+	 */
+
+	/**
+	 * Aggregate yesterday's events into daily stats.
+	 *
+	 * Called by the daily cleanup cron job. Summarizes detailed events
+	 * into efficient per-page daily statistics.
+	 *
+	 * @return int Number of pages aggregated
+	 */
+	public static function aggregate_daily_stats(): int {
+		global $wpdb;
+
+		$events_table = self::table_name();
+		$stats_table  = self::stats_table_name();
+
+		// Get yesterday's date
+		$yesterday = gmdate( 'Y-m-d', strtotime( '-1 day' ) );
+
+		// Check if already aggregated
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$exists = $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT COUNT(*) FROM {$stats_table} WHERE stat_date = %s",
+				$yesterday
+			)
+		);
+
+		if ( (int) $exists > 0 ) {
+			return 0; // Already aggregated
+		}
+
+		// Aggregate pageview stats
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$pageview_stats = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT 
+					page_url,
+					COUNT(*) as pageviews,
+					COUNT(DISTINCT session_id) as unique_sessions,
+					AVG(NULLIF(time_on_page, 0)) as avg_time,
+					AVG(NULLIF(scroll_depth, 0)) as avg_scroll
+				FROM {$events_table}
+				WHERE event_type = 'pageview'
+					AND DATE(created_at) = %s
+				GROUP BY page_url",
+				$yesterday
+			),
+			ARRAY_A
+		);
+
+		if ( empty( $pageview_stats ) ) {
+			return 0;
+		}
+
+		// Get click and conversion counts
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$click_stats = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT 
+					page_url,
+					SUM(CASE WHEN event_type = 'link_click' THEN 1 ELSE 0 END) as clicks,
+					SUM(CASE WHEN event_type = 'conversion' THEN 1 ELSE 0 END) as conversions
+				FROM {$events_table}
+				WHERE event_type IN ('link_click', 'conversion')
+					AND DATE(created_at) = %s
+				GROUP BY page_url",
+				$yesterday
+			),
+			ARRAY_A
+		);
+
+		// Index click stats by URL for easy lookup
+		$click_index = array();
+		foreach ( $click_stats as $stat ) {
+			$click_index[ $stat['page_url'] ] = $stat;
+		}
+
+		// Insert aggregated stats
+		$count = 0;
+		foreach ( $pageview_stats as $stat ) {
+			$page_path = self::extract_path( $stat['page_url'] );
+			$clicks    = $click_index[ $stat['page_url'] ]['clicks'] ?? 0;
+			$convs     = $click_index[ $stat['page_url'] ]['conversions'] ?? 0;
+
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+			$wpdb->insert(
+				$stats_table,
+				array(
+					'stat_date'        => $yesterday,
+					'page_path'        => $page_path,
+					'pageviews'        => (int) $stat['pageviews'],
+					'unique_sessions'  => (int) $stat['unique_sessions'],
+					'avg_time_on_page' => (int) round( (float) $stat['avg_time'] ),
+					'avg_scroll_depth' => (int) round( (float) $stat['avg_scroll'] ),
+					'link_clicks'      => (int) $clicks,
+					'conversions'      => (int) $convs,
+				),
+				array( '%s', '%s', '%d', '%d', '%d', '%d', '%d', '%d' )
+			);
+			$count++;
+		}
+
+		return $count;
+	}
+
+	/**
+	 * Extract the path portion from a full URL.
+	 *
+	 * @param string $url Full URL.
+	 * @return string Path portion (e.g., /blog/my-post/)
+	 */
+	public static function extract_path( string $url ): string {
+		$parsed = wp_parse_url( $url );
+		$path   = $parsed['path'] ?? '/';
+
+		// Ensure path starts with /
+		if ( strpos( $path, '/' ) !== 0 ) {
+			$path = '/' . $path;
+		}
+
+		// Limit length
+		if ( strlen( $path ) > 500 ) {
+			$path = substr( $path, 0, 500 );
+		}
+
+		return $path;
+	}
+
+	/**
+	 * Get top pages by pageviews for a date range.
+	 *
+	 * @param string $start_date Start date (YYYY-MM-DD).
+	 * @param string $end_date   End date (YYYY-MM-DD).
+	 * @param int    $limit      Maximum results.
+	 * @return array<int, array<string, mixed>>
+	 */
+	public static function get_top_pages( string $start_date, string $end_date, int $limit = 20 ): array {
+		global $wpdb;
+		$stats_table = self::stats_table_name();
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$results = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT 
+					page_path,
+					SUM(pageviews) as total_pageviews,
+					SUM(unique_sessions) as total_sessions,
+					ROUND(AVG(avg_time_on_page)) as avg_time,
+					ROUND(AVG(avg_scroll_depth)) as avg_scroll,
+					SUM(link_clicks) as total_clicks,
+					SUM(conversions) as total_conversions
+				FROM {$stats_table}
+				WHERE stat_date BETWEEN %s AND %s
+				GROUP BY page_path
+				ORDER BY total_pageviews DESC
+				LIMIT %d",
+				$start_date,
+				$end_date,
+				$limit
+			),
+			ARRAY_A
+		);
+
+		return is_array( $results ) ? $results : array();
+	}
+
+	/**
+	 * Get pageview trends over time (monthly or yearly).
+	 *
+	 * @param string $period   'month' or 'year'.
+	 * @param int    $count    Number of periods to return.
+	 * @return array<int, array<string, mixed>>
+	 */
+	public static function get_pageview_trends( string $period = 'month', int $count = 12 ): array {
+		global $wpdb;
+		$stats_table = self::stats_table_name();
+
+		if ( $period === 'year' ) {
+			$date_format = '%Y';
+			$interval    = $count . ' YEAR';
+		} else {
+			$date_format = '%Y-%m';
+			$interval    = $count . ' MONTH';
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$results = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT 
+					DATE_FORMAT(stat_date, %s) as period,
+					SUM(pageviews) as pageviews,
+					SUM(unique_sessions) as sessions,
+					SUM(link_clicks) as clicks,
+					SUM(conversions) as conversions
+				FROM {$stats_table}
+				WHERE stat_date >= DATE_SUB(CURDATE(), INTERVAL {$interval})
+				GROUP BY period
+				ORDER BY period ASC",
+				$date_format
+			),
+			ARRAY_A
+		);
+
+		return is_array( $results ) ? $results : array();
+	}
+
+	/**
+	 * Get summary statistics for a date range.
+	 *
+	 * @param string $start_date Start date (YYYY-MM-DD).
+	 * @param string $end_date   End date (YYYY-MM-DD).
+	 * @return array<string, int>
+	 */
+	public static function get_summary_stats( string $start_date, string $end_date ): array {
+		global $wpdb;
+		$stats_table = self::stats_table_name();
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$result = $wpdb->get_row(
+			$wpdb->prepare(
+				"SELECT 
+					COALESCE(SUM(pageviews), 0) as total_pageviews,
+					COALESCE(SUM(unique_sessions), 0) as total_sessions,
+					COALESCE(SUM(link_clicks), 0) as total_clicks,
+					COALESCE(SUM(conversions), 0) as total_conversions,
+					COALESCE(ROUND(AVG(avg_time_on_page)), 0) as avg_time,
+					COALESCE(ROUND(AVG(avg_scroll_depth)), 0) as avg_scroll
+				FROM {$stats_table}
+				WHERE stat_date BETWEEN %s AND %s",
+				$start_date,
+				$end_date
+			),
+			ARRAY_A
+		);
+
+		return is_array( $result ) ? array_map( 'intval', $result ) : array(
+			'total_pageviews'   => 0,
+			'total_sessions'    => 0,
+			'total_clicks'      => 0,
+			'total_conversions' => 0,
+			'avg_time'          => 0,
+			'avg_scroll'        => 0,
+		);
+	}
+
+	/**
+	 * Cleanup old aggregated stats based on retention setting.
+	 *
+	 * Keeps aggregated data 3x longer than detailed events for
+	 * long-term trend analysis.
+	 *
+	 * @return int Number of rows deleted.
+	 */
+	public static function cleanup_old_stats(): int {
+		$retention_days = self::get_data_retention_days();
+
+		// Keep aggregated stats 3x longer than events (max 3 years)
+		if ( $retention_days <= 0 ) {
+			return 0;
+		}
+
+		$stats_retention = min( $retention_days * 3, 1095 );
+
+		global $wpdb;
+		$stats_table = self::stats_table_name();
+		$cutoff      = gmdate( 'Y-m-d', strtotime( "-{$stats_retention} days" ) );
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$deleted = $wpdb->query(
+			$wpdb->prepare(
+				"DELETE FROM {$stats_table} WHERE stat_date < %s",
+				$cutoff
+			)
+		);
+
+		return is_int( $deleted ) ? $deleted : 0;
 	}
 }
