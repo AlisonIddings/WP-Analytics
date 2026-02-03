@@ -181,9 +181,9 @@ final class WPA_Analytics {
 				<?php endif; ?>
 			</div>
 
-			<?php if ( ! empty( $trends ) ) : ?>
-			<!-- Chart.js from CDN -->
-			<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+		<?php if ( ! empty( $trends ) ) : ?>
+		<!-- Chart.js from CDN with SRI for security -->
+		<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" integrity="sha384-fMnnnlPH8grVo/RbY/FMpn6X3L9RfMsOG37fOqVlkjMFZ0160sJALqniJQx/nSUG" crossorigin="anonymous"></script>
 			<script>
 			document.addEventListener('DOMContentLoaded', function() {
 				var ctx = document.getElementById('wpa-trends-chart');

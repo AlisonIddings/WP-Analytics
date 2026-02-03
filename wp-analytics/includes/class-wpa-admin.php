@@ -897,6 +897,31 @@ final class WPA_Admin {
 	}
 
 	/**
+	 * Validate a date string is a valid YYYY-MM-DD format and represents a real date.
+	 *
+	 * @param string $date The date string to validate.
+	 * @return bool True if valid date, false otherwise.
+	 */
+	private static function is_valid_date( string $date ): bool {
+		// Must match YYYY-MM-DD format
+		if ( ! preg_match( '/^(\d{4})-(\d{2})-(\d{2})$/', $date, $matches ) ) {
+			return false;
+		}
+
+		// Verify it's a real date (e.g., not 2024-13-45)
+		$year  = (int) $matches[1];
+		$month = (int) $matches[2];
+		$day   = (int) $matches[3];
+
+		// Reasonable year range (1970-2100)
+		if ( $year < 1970 || $year > 2100 ) {
+			return false;
+		}
+
+		return checkdate( $month, $day, $year );
+	}
+
+	/**
 	 * Export analytics data as CSV.
 	 *
 	 * Streams data in batches to handle large datasets efficiently.
@@ -992,11 +1017,11 @@ final class WPA_Admin {
 		$date_from = isset( $filters['date_from'] ) ? sanitize_text_field( (string) $filters['date_from'] ) : '';
 		$date_to   = isset( $filters['date_to'] ) ? sanitize_text_field( (string) $filters['date_to'] ) : '';
 
-		if ( $date_from !== '' && preg_match( '/^\d{4}-\d{2}-\d{2}$/', $date_from ) ) {
+		if ( self::is_valid_date( $date_from ) ) {
 			$where[]  = 'created_at >= %s';
 			$params[] = $date_from . ' 00:00:00';
 		}
-		if ( $date_to !== '' && preg_match( '/^\d{4}-\d{2}-\d{2}$/', $date_to ) ) {
+		if ( self::is_valid_date( $date_to ) ) {
 			$where[]  = 'created_at <= %s';
 			$params[] = $date_to . ' 23:59:59';
 		}

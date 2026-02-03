@@ -717,12 +717,12 @@ final class WPA_Database {
 		$where  = array();
 		$params = array();
 
-		// Validate and add date conditions
-		if ( $date_from !== '' && preg_match( '/^\d{4}-\d{2}-\d{2}$/', $date_from ) ) {
+		// Validate and add date conditions with strict validation
+		if ( self::is_valid_date( $date_from ) ) {
 			$where[]  = 'created_at >= %s';
 			$params[] = $date_from . ' 00:00:00';
 		}
-		if ( $date_to !== '' && preg_match( '/^\d{4}-\d{2}-\d{2}$/', $date_to ) ) {
+		if ( self::is_valid_date( $date_to ) ) {
 			$where[]  = 'created_at <= %s';
 			$params[] = $date_to . ' 23:59:59';
 		}
@@ -853,6 +853,31 @@ final class WPA_Database {
 	 * PRIVATE HELPERS
 	 * =========================================================================
 	 */
+
+	/**
+	 * Validate a date string is a valid YYYY-MM-DD format and represents a real date.
+	 *
+	 * @param string $date The date string to validate.
+	 * @return bool True if valid date, false otherwise.
+	 */
+	private static function is_valid_date( string $date ): bool {
+		// Must match YYYY-MM-DD format
+		if ( ! preg_match( '/^(\d{4})-(\d{2})-(\d{2})$/', $date, $matches ) ) {
+			return false;
+		}
+
+		// Verify it's a real date (e.g., not 2024-13-45)
+		$year  = (int) $matches[1];
+		$month = (int) $matches[2];
+		$day   = (int) $matches[3];
+
+		// Reasonable year range (1970-2100)
+		if ( $year < 1970 || $year > 2100 ) {
+			return false;
+		}
+
+		return checkdate( $month, $day, $year );
+	}
 
 	/**
 	 * Generate and save a public token if one doesn't exist.
@@ -1204,14 +1229,21 @@ final class WPA_Database {
 		global $wpdb;
 		$stats_table = self::stats_table_name();
 
+		// Strictly validate period type (only 'month' or 'year')
+		$period = in_array( $period, array( 'month', 'year' ), true ) ? $period : 'month';
+
+		// Strictly bound count to prevent abuse (1-100 periods max)
+		$count = max( 1, min( 100, absint( $count ) ) );
+
 		if ( $period === 'year' ) {
 			$date_format = '%Y';
-			$interval    = $count . ' YEAR';
+			$interval_type = 'YEAR';
 		} else {
 			$date_format = '%Y-%m';
-			$interval    = $count . ' MONTH';
+			$interval_type = 'MONTH';
 		}
 
+		// Build query with INTERVAL using only sanitized/validated values
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$results = $wpdb->get_results(
 			$wpdb->prepare(
@@ -1222,10 +1254,11 @@ final class WPA_Database {
 					SUM(link_clicks) as clicks,
 					SUM(conversions) as conversions
 				FROM {$stats_table}
-				WHERE stat_date >= DATE_SUB(CURDATE(), INTERVAL {$interval})
+				WHERE stat_date >= DATE_SUB(CURDATE(), INTERVAL %d {$interval_type})
 				GROUP BY period
 				ORDER BY period ASC",
-				$date_format
+				$date_format,
+				$count
 			),
 			ARRAY_A
 		);
