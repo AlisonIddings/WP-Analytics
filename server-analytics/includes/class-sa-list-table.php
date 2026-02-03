@@ -140,6 +140,10 @@ final class SA_List_Table extends WP_List_Table {
 		}
 
 		$search = isset($this->filters['s']) ? sanitize_text_field((string) $this->filters['s']) : '';
+		// Limit search term length to prevent abuse
+		if (strlen($search) > 200) {
+			$search = substr($search, 0, 200);
+		}
 		if ($search !== '') {
 			$like = '%' . $wpdb->esc_like($search) . '%';
 			$where[] = '(page_url LIKE %s OR referrer_url LIKE %s OR link_url LIKE %s OR ip_address LIKE %s)';
@@ -208,6 +212,10 @@ final class SA_List_Table extends WP_List_Table {
 		}
 
 		$search = isset($this->filters['s']) ? sanitize_text_field((string) $this->filters['s']) : '';
+		// Limit search term length to prevent abuse
+		if (strlen($search) > 200) {
+			$search = substr($search, 0, 200);
+		}
 		if ($search !== '') {
 			$like = '%' . $wpdb->esc_like($search) . '%';
 			$where[] = '(page_url LIKE %s OR referrer_url LIKE %s OR link_url LIKE %s OR ip_address LIKE %s)';

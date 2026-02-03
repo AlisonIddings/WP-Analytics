@@ -49,11 +49,17 @@ final class SA_Admin {
 	 * @return array<string, mixed>
 	 */
 	private static function current_filters(): array {
+		// Limit search term to prevent abuse
+		$search = isset($_GET['s']) ? sanitize_text_field((string) $_GET['s']) : '';
+		if (strlen($search) > 200) {
+			$search = substr($search, 0, 200);
+		}
+
 		return array(
 			'event_type' => isset($_GET['event_type']) ? sanitize_key((string) $_GET['event_type']) : '',
 			'date_from'  => isset($_GET['date_from']) ? sanitize_text_field((string) $_GET['date_from']) : '',
 			'date_to'    => isset($_GET['date_to']) ? sanitize_text_field((string) $_GET['date_to']) : '',
-			's'          => isset($_GET['s']) ? sanitize_text_field((string) $_GET['s']) : '',
+			's'          => $search,
 		);
 	}
 
@@ -273,6 +279,10 @@ final class SA_Admin {
 		}
 
 		$search = isset($filters['s']) ? sanitize_text_field((string) $filters['s']) : '';
+		// Limit search term length to prevent abuse
+		if (strlen($search) > 200) {
+			$search = substr($search, 0, 200);
+		}
 		if ($search !== '') {
 			$like = '%' . $wpdb->esc_like($search) . '%';
 			$where[] = '(page_url LIKE %s OR referrer_url LIKE %s OR link_url LIKE %s OR ip_address LIKE %s)';

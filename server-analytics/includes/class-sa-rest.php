@@ -73,6 +73,16 @@ final class SA_REST {
 	 * Note: analytics endpoints are public by nature.
 	 */
 	private static function validate_request(WP_REST_Request $request): true|WP_Error {
+		// Validate Content-Type is JSON (helps prevent CSRF via form submission)
+		$content_type = $request->get_content_type();
+		if (!isset($content_type['value']) || strpos($content_type['value'], 'application/json') === false) {
+			// Also check raw header for Beacon API which may send text/plain
+			$raw_content_type = isset($_SERVER['CONTENT_TYPE']) ? (string) $_SERVER['CONTENT_TYPE'] : '';
+			if (strpos($raw_content_type, 'application/json') === false && strpos($raw_content_type, 'text/plain') === false) {
+				return new WP_Error('sa_invalid_content_type', __('Invalid content type.', 'server-analytics'), array('status' => 400));
+			}
+		}
+
 		$token = (string) $request->get_param('token');
 		$stored_token = SA_DB::get_public_token();
 
@@ -306,6 +316,21 @@ final class SA_REST {
 			return new WP_Error('sa_invalid_params', __('Invalid parameters.', 'server-analytics'), array('status' => 400));
 		}
 
+		// SECURITY: Verify pageview belongs to this session to prevent IDOR attacks
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$pageview_exists = $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT COUNT(*) FROM {$table} WHERE id = %d AND session_id = %s AND event_type = %s",
+				$pageview_id,
+				$session,
+				'pageview'
+			)
+		);
+
+		if ((int) $pageview_exists === 0) {
+			return new WP_Error('sa_invalid_pageview', __('Invalid pageview.', 'server-analytics'), array('status' => 400));
+		}
+
 		$ip = self::client_ip();
 		$ua = self::sanitize_user_agent();
 
@@ -355,6 +380,11 @@ final class SA_REST {
 	 * Blocks javascript:, data:, vbscript:, and other dangerous schemes.
 	 */
 	private static function validate_url(string $url): string {
+		// Limit URL length to prevent storage abuse (2048 is common browser limit)
+		if (strlen($url) > 2048) {
+			$url = substr($url, 0, 2048);
+		}
+
 		$url = esc_url_raw($url);
 
 		if ($url === '') {
