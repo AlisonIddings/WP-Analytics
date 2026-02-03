@@ -58,7 +58,38 @@ final class SA_List_Table extends WP_List_Table {
 	}
 
 	/**
-	 * Created at column with row actions.
+	 * Get bulk actions.
+	 *
+	 * @return array<string, string>
+	 */
+	protected function get_bulk_actions(): array {
+		return array(
+			'bulk_delete' => __('Delete', 'server-analytics'),
+		);
+	}
+
+	/**
+	 * @return array<string, array{0:string,1:bool}>
+	 */
+	protected function get_sortable_columns(): array {
+		return array(
+			'created_at'   => array('created_at', true),
+			'event_type'   => array('event_type', false),
+			'ip_address'   => array('ip_address', false),
+			'time_on_page' => array('time_on_page', false),
+			'scroll_depth' => array('scroll_depth', false),
+		);
+	}
+
+	/**
+	 * Get the name of the primary column for responsive view.
+	 */
+	protected function get_primary_column_name(): string {
+		return 'created_at';
+	}
+
+	/**
+	 * Handles the created_at column output including mobile data.
 	 *
 	 * @param array<string, mixed> $item
 	 */
@@ -89,31 +120,27 @@ final class SA_List_Table extends WP_List_Table {
 			),
 		);
 
-		return $display . $this->row_actions($actions);
-	}
-
-	/**
-	 * Get bulk actions.
-	 *
-	 * @return array<string, string>
-	 */
-	protected function get_bulk_actions(): array {
-		return array(
-			'bulk_delete' => __('Delete', 'server-analytics'),
+		// Add mobile summary info (event type and page URL)
+		$event_type = $item['event_type'] ?? '';
+		$page_url = $item['page_url'] ?? '';
+		
+		$event_labels = array(
+			'pageview'   => __('Pageview', 'server-analytics'),
+			'link_click' => __('Link Click', 'server-analytics'),
+			'conversion' => __('Conversion', 'server-analytics'),
 		);
-	}
+		$event_label = $event_labels[$event_type] ?? $event_type;
+		$event_class = 'sa-mobile-event sa-event-' . esc_attr($event_type);
+		
+		$mobile_info = '<div class="sa-mobile-info">';
+		$mobile_info .= '<span class="' . $event_class . '">' . esc_html($event_label) . '</span>';
+		if ($page_url !== '') {
+			$truncated_url = strlen($page_url) > 50 ? substr($page_url, 0, 47) . '...' : $page_url;
+			$mobile_info .= '<span class="sa-mobile-url">' . esc_html($truncated_url) . '</span>';
+		}
+		$mobile_info .= '</div>';
 
-	/**
-	 * @return array<string, array{0:string,1:bool}>
-	 */
-	protected function get_sortable_columns(): array {
-		return array(
-			'created_at'   => array('created_at', true),
-			'event_type'   => array('event_type', false),
-			'ip_address'   => array('ip_address', false),
-			'time_on_page' => array('time_on_page', false),
-			'scroll_depth' => array('scroll_depth', false),
-		);
+		return $display . $mobile_info . $this->row_actions($actions);
 	}
 
 	public function no_items(): void {
