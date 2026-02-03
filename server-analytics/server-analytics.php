@@ -1,13 +1,13 @@
 <?php
 /**
  * Plugin Name: Server Analytics
- * Plugin URI: https://example.com/server-analytics
+ * Plugin URI: https://alisoniddings.com/server-analytics
  * Description: Collects server-side analytics for pageviews, referrers, link clicks, time on page, and scroll depth. Includes a dashboard report with filtering, sorting, and CSV/PDF exports. GDPR-friendly with IP anonymization option.
  * Version: 1.1.0
  * Requires at least: 6.0
  * Requires PHP: 7.4
- * Author: Your Name
- * Author URI: https://example.com
+ * Author: Alison Iddings
+ * Author URI: https://alisoniddings.com
  * License: GPLv2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain: server-analytics

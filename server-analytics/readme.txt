@@ -1,6 +1,6 @@
 === Server Analytics ===
-Contributors: yourwordpressusername
-Donate link: https://example.com/donate
+Contributors: AlisonIddings
+Donate link: https://alisoniddings.com
 Tags: analytics, pageviews, engagement, statistics, tracking
 Requires at least: 6.0
 Tested up to: 6.7
