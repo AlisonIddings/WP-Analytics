@@ -5,7 +5,7 @@ Tags: analytics, pageviews, engagement, statistics, tracking, conversions
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.2.0
+Stable tag: 1.2.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -94,6 +94,10 @@ Yes! Go to Settings and you can:
 * Exclude URLs matching patterns (e.g., `/cart/*` to exclude cart pages)
 * Use "whitelist mode" to only track specific URLs
 
+= Can I exclude my own visits from being tracked? =
+
+Yes! Go to Settings → Privacy Settings and add your IP address to the "Exclude IP Addresses" field. Your current IP is displayed with an "Add My IP" button for convenience. You can also use CIDR notation (e.g., `192.168.1.0/24`) to exclude entire IP ranges.
+
 = What capabilities are required to view analytics? =
 
 By default, users with the `edit_pages` capability (Editors and above) can view and export analytics. You can change this with the `wpa_view_analytics_capability` filter.
@@ -106,6 +110,14 @@ By default, users with the `edit_pages` capability (Editors and above) can view 
 4. Mobile-responsive data table
 
 == Changelog ==
+
+= 1.2.1 =
+* **New IP exclusion feature** - Exclude your own IP from being tracked
+* Added "Add My IP" button for easy self-exclusion
+* Support for CIDR notation to exclude IP ranges (e.g., 192.168.1.0/24)
+* Enhanced security with SRI hash for CDN scripts
+* Stricter date validation using checkdate()
+* Improved SQL parameter handling
 
 = 1.2.0 =
 * **New Analytics Overview page** with summary statistics cards

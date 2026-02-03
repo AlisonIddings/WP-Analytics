@@ -568,15 +568,27 @@ final class WPA_REST_API {
 	 * Validate an incoming tracking request.
 	 *
 	 * Performs multiple security checks:
-	 * 1. Content-Type validation (prevents CSRF via form submission)
-	 * 2. Token validation (ensures request comes from our tracking script)
-	 * 3. Same-origin validation (blocks cross-site requests)
-	 * 4. Rate limiting (prevents abuse)
+	 * 1. IP exclusion check (skip tracking for excluded IPs)
+	 * 2. Content-Type validation (prevents CSRF via form submission)
+	 * 3. Token validation (ensures request comes from our tracking script)
+	 * 4. Same-origin validation (blocks cross-site requests)
+	 * 5. Rate limiting (prevents abuse)
 	 *
 	 * @param WP_REST_Request $request The incoming request.
 	 * @return true|WP_Error True if valid, WP_Error otherwise.
 	 */
 	private static function validate_request( WP_REST_Request $request ): true|WP_Error {
+		// Check if this IP is excluded from tracking (e.g., site owner's IP)
+		// Return a "silent success" error that the client will handle gracefully
+		$client_ip = self::get_client_ip_raw();
+		if ( WPA_Database::is_ip_excluded( $client_ip ) ) {
+			return new WP_Error(
+				'wpa_ip_excluded',
+				__( 'Tracking disabled for this IP.', 'wp-analytics' ),
+				array( 'status' => 204 ) // No Content - silent success
+			);
+		}
+
 		// Check Content-Type to help prevent CSRF attacks
 		$content_type = $request->get_content_type();
 		if ( ! isset( $content_type['value'] ) || strpos( $content_type['value'], 'application/json' ) === false ) {

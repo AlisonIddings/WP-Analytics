@@ -553,9 +553,13 @@ final class WPA_Admin {
 		$excluded_post_types = WPA_Database::get_excluded_post_types();
 		$excluded_urls       = WPA_Database::get_excluded_urls_raw();
 		$included_urls       = WPA_Database::get_included_urls_raw();
+		$excluded_ips        = WPA_Database::get_excluded_ips_raw();
 		$anonymize_ip        = WPA_Database::is_ip_anonymization_enabled();
 		$retention_days      = WPA_Database::get_data_retention_days();
 		$conversion_buttons  = WPA_Database::get_conversion_buttons();
+
+		// Get the current user's IP for display
+		$current_ip = self::get_current_user_ip();
 
 		// Get all public post types for the exclusion list
 		$post_types = get_post_types( array( 'public' => true ), 'objects' );
@@ -731,6 +735,57 @@ final class WPA_Admin {
 				<h2><?php echo esc_html__( 'Privacy Settings', 'wp-analytics' ); ?></h2>
 
 				<table class="form-table" role="presentation">
+					<!-- Excluded IPs -->
+					<tr>
+						<th scope="row">
+							<label for="excluded_ips"><?php echo esc_html__( 'Exclude IP Addresses', 'wp-analytics' ); ?></label>
+						</th>
+						<td>
+							<textarea name="excluded_ips" id="excluded_ips" rows="5" cols="50" class="large-text code"><?php echo esc_textarea( $excluded_ips ); ?></textarea>
+							<p class="description">
+								<?php echo esc_html__( 'Enter one IP address per line. These IPs will not be tracked.', 'wp-analytics' ); ?><br />
+								<?php echo esc_html__( 'Supports CIDR notation for ranges (e.g., 192.168.1.0/24).', 'wp-analytics' ); ?><br />
+								<?php echo esc_html__( 'Lines starting with # are treated as comments.', 'wp-analytics' ); ?>
+							</p>
+							<?php if ( $current_ip !== '' ) : ?>
+								<p class="description" style="margin-top: 10px;">
+									<strong><?php echo esc_html__( 'Your current IP:', 'wp-analytics' ); ?></strong>
+									<code><?php echo esc_html( $current_ip ); ?></code>
+									<button type="button" class="button button-small" id="wpa-add-my-ip" style="margin-left: 10px;">
+										<?php echo esc_html__( 'Add My IP', 'wp-analytics' ); ?>
+									</button>
+								</p>
+								<script>
+								(function() {
+									var addBtn = document.getElementById('wpa-add-my-ip');
+									var textarea = document.getElementById('excluded_ips');
+									var myIp = <?php echo wp_json_encode( $current_ip ); ?>;
+									
+									if (addBtn && textarea) {
+										addBtn.addEventListener('click', function() {
+											var current = textarea.value.trim();
+											// Check if IP is already in the list
+											var lines = current.split('\n');
+											for (var i = 0; i < lines.length; i++) {
+												if (lines[i].trim() === myIp) {
+													alert(<?php echo wp_json_encode( __( 'This IP is already in the list.', 'wp-analytics' ) ); ?>);
+													return;
+												}
+											}
+											// Add IP to textarea
+											if (current !== '') {
+												textarea.value = current + '\n' + myIp;
+											} else {
+												textarea.value = myIp;
+											}
+										});
+									}
+								})();
+								</script>
+							<?php endif; ?>
+						</td>
+					</tr>
+
 					<!-- IP Anonymization -->
 					<tr>
 						<th scope="row"><?php echo esc_html__( 'IP Anonymization', 'wp-analytics' ); ?></th>
@@ -811,6 +866,10 @@ final class WPA_Admin {
 			}
 		}
 		WPA_Database::set_conversion_buttons( $conversion_buttons );
+
+		// Save excluded IPs
+		$excluded_ips = isset( $_POST['excluded_ips'] ) ? sanitize_textarea_field( wp_unslash( $_POST['excluded_ips'] ) ) : '';
+		WPA_Database::set_excluded_ips( $excluded_ips );
 
 		// Save IP anonymization
 		$anonymize_ip = isset( $_POST['anonymize_ip'] ) && $_POST['anonymize_ip'] === '1';
@@ -919,6 +978,24 @@ final class WPA_Admin {
 		}
 
 		return checkdate( $month, $day, $year );
+	}
+
+	/**
+	 * Get the current user's IP address for display in settings.
+	 *
+	 * @return string The IP address or empty string.
+	 */
+	private static function get_current_user_ip(): string {
+		$ip = '';
+
+		if ( ! empty( $_SERVER['REMOTE_ADDR'] ) ) {
+			$ip = (string) $_SERVER['REMOTE_ADDR'];
+		}
+
+		// Remove any non-IP characters and limit length
+		$ip = preg_replace( '/[^0-9a-fA-F:\.]/', '', $ip );
+
+		return is_string( $ip ) ? substr( $ip, 0, 45 ) : '';
 	}
 
 	/**

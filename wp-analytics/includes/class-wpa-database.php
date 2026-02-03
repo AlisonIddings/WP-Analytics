@@ -68,8 +68,11 @@ final class WPA_Database {
 	/** @var string Option key for conversion button configurations */
 	private const OPTION_CONVERSION_BUTTONS = 'wpa_conversion_buttons';
 
+	/** @var string Option key for excluded IP addresses */
+	private const OPTION_EXCLUDED_IPS = 'wpa_excluded_ips';
+
 	/** @var string Current database schema version */
-	private const DB_VERSION = '1.2.0';
+	private const DB_VERSION = '1.2.1';
 
 	/*
 	 * =========================================================================
@@ -152,6 +155,7 @@ final class WPA_Database {
 		delete_option( self::OPTION_EXCLUDED_URLS );
 		delete_option( self::OPTION_INCLUDED_URLS );
 		delete_option( self::OPTION_CONVERSION_BUTTONS );
+		delete_option( self::OPTION_EXCLUDED_IPS );
 	}
 
 	/*
@@ -639,6 +643,176 @@ final class WPA_Database {
 		}
 
 		return $button_id;
+	}
+
+	/*
+	 * =========================================================================
+	 * IP EXCLUSION
+	 * =========================================================================
+	 */
+
+	/**
+	 * Get IP addresses excluded from tracking.
+	 *
+	 * @return string[] Array of IP addresses or CIDR ranges
+	 */
+	public static function get_excluded_ips(): array {
+		if ( isset( self::$cache['excluded_ips'] ) ) {
+			return self::$cache['excluded_ips'];
+		}
+
+		$ips = get_option( self::OPTION_EXCLUDED_IPS, '' );
+		$ips = is_string( $ips ) ? self::parse_ip_list( $ips ) : array();
+
+		self::$cache['excluded_ips'] = $ips;
+		return $ips;
+	}
+
+	/**
+	 * Set IP addresses to exclude from tracking.
+	 *
+	 * @param string $ips Newline-separated IP addresses or CIDR ranges.
+	 * @return void
+	 */
+	public static function set_excluded_ips( string $ips ): void {
+		$ips = sanitize_textarea_field( $ips );
+		update_option( self::OPTION_EXCLUDED_IPS, $ips, true );
+		unset( self::$cache['excluded_ips'] );
+	}
+
+	/**
+	 * Get raw excluded IPs string for textarea display.
+	 *
+	 * @return string Newline-separated IP addresses
+	 */
+	public static function get_excluded_ips_raw(): string {
+		$value = get_option( self::OPTION_EXCLUDED_IPS, '' );
+		return is_string( $value ) ? $value : '';
+	}
+
+	/**
+	 * Parse IP list from newline-separated text.
+	 *
+	 * @param string $text Newline-separated IPs.
+	 * @return string[] Array of trimmed, non-empty IPs
+	 */
+	private static function parse_ip_list( string $text ): array {
+		$lines = explode( "\n", $text );
+		$ips   = array();
+
+		foreach ( $lines as $line ) {
+			$line = trim( $line );
+			// Skip empty lines and comments
+			if ( $line === '' || strpos( $line, '#' ) === 0 ) {
+				continue;
+			}
+			// Basic validation - limit length and remove dangerous chars
+			if ( strlen( $line ) <= 45 ) {
+				// Only allow valid IP characters (digits, dots, colons for IPv6, slash for CIDR)
+				$clean = preg_replace( '/[^0-9a-fA-F:.\\/]/', '', $line );
+				if ( $clean !== '' ) {
+					$ips[] = $clean;
+				}
+			}
+		}
+
+		return $ips;
+	}
+
+	/**
+	 * Check if an IP address should be excluded from tracking.
+	 *
+	 * Supports exact IP matching and CIDR notation for ranges.
+	 *
+	 * @param string $ip The IP address to check.
+	 * @return bool True if the IP should be excluded.
+	 */
+	public static function is_ip_excluded( string $ip ): bool {
+		if ( $ip === '' ) {
+			return false;
+		}
+
+		$excluded = self::get_excluded_ips();
+		if ( empty( $excluded ) ) {
+			return false;
+		}
+
+		foreach ( $excluded as $pattern ) {
+			// Check for CIDR notation
+			if ( strpos( $pattern, '/' ) !== false ) {
+				if ( self::ip_in_cidr( $ip, $pattern ) ) {
+					return true;
+				}
+			} elseif ( $ip === $pattern ) {
+				// Exact match
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Check if an IP address is within a CIDR range.
+	 *
+	 * @param string $ip   The IP address to check.
+	 * @param string $cidr The CIDR range (e.g., 192.168.1.0/24).
+	 * @return bool True if IP is within the range.
+	 */
+	private static function ip_in_cidr( string $ip, string $cidr ): bool {
+		$parts = explode( '/', $cidr, 2 );
+		if ( count( $parts ) !== 2 ) {
+			return false;
+		}
+
+		$range_ip = $parts[0];
+		$netmask  = (int) $parts[1];
+
+		// Handle IPv4
+		if ( filter_var( $ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4 ) &&
+			 filter_var( $range_ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4 ) ) {
+
+			if ( $netmask < 0 || $netmask > 32 ) {
+				return false;
+			}
+
+			$ip_long    = ip2long( $ip );
+			$range_long = ip2long( $range_ip );
+
+			if ( $ip_long === false || $range_long === false ) {
+				return false;
+			}
+
+			$mask = -1 << ( 32 - $netmask );
+			return ( $ip_long & $mask ) === ( $range_long & $mask );
+		}
+
+		// Handle IPv6
+		if ( filter_var( $ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6 ) &&
+			 filter_var( $range_ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6 ) ) {
+
+			if ( $netmask < 0 || $netmask > 128 ) {
+				return false;
+			}
+
+			$ip_bin    = inet_pton( $ip );
+			$range_bin = inet_pton( $range_ip );
+
+			if ( $ip_bin === false || $range_bin === false ) {
+				return false;
+			}
+
+			// Build netmask
+			$mask = str_repeat( "\xff", (int) floor( $netmask / 8 ) );
+			if ( $netmask % 8 !== 0 ) {
+				$mask .= chr( 256 - ( 1 << ( 8 - ( $netmask % 8 ) ) ) );
+			}
+			$mask = str_pad( $mask, 16, "\x00" );
+
+			return ( $ip_bin & $mask ) === ( $range_bin & $mask );
+		}
+
+		return false;
 	}
 
 	/*
