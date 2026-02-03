@@ -36,6 +36,7 @@
   var sentFinal = false;
   var pendingClicks = [];
   var pageHidden = false;
+  var MAX_PENDING_CLICKS = 20; // Limit to prevent memory issues
 
   function clamp(n, min, max) {
     return Math.min(max, Math.max(min, n));
@@ -145,6 +146,8 @@
     // Check pageviewId BEFORE setting sentFinal to avoid race condition
     // where quick page exit marks sentFinal=true before pageview completes
     if (!pageviewId) return;
+    // Also require valid session for security
+    if (!sessionId) return;
     sentFinal = true;
     var seconds = Math.round((Date.now() - startMs) / 1000);
     var depth = clamp(maxScroll, 0, 100);
@@ -153,6 +156,7 @@
       {
         token: settings.token,
         pageview_id: pageviewId,
+        session: sessionId, // Required for ownership validation
         time_on_page: seconds,
         scroll_depth: depth,
       },
@@ -185,7 +189,10 @@
       var href = String(a.href || "");
       if (!href) return;
       if (!pageviewId) {
-        pendingClicks.push(href);
+        // Limit pending clicks to prevent memory issues
+        if (pendingClicks.length < MAX_PENDING_CLICKS) {
+          pendingClicks.push(href);
+        }
         return;
       }
       postJson(

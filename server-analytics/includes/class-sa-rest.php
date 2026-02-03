@@ -42,6 +42,7 @@ final class SA_REST {
 				'args'                => array(
 					'token'        => array('type' => 'string', 'required' => true),
 					'pageview_id'  => array('type' => 'integer', 'required' => true),
+					'session'      => array('type' => 'string', 'required' => true), // Required for ownership validation
 					'time_on_page' => array('type' => 'integer', 'required' => false),
 					'scroll_depth' => array('type' => 'integer', 'required' => false),
 				),
@@ -132,12 +133,26 @@ final class SA_REST {
 		} elseif (!empty($_SERVER['HTTP_REFERER'])) {
 			$ref = (string) $_SERVER['HTTP_REFERER'];
 		}
+
+		// SECURITY: Be more strict about missing Origin/Referer headers
+		// Only allow if it's a same-origin request (check for XMLHttpRequest or fetch)
 		if ($ref === '') {
-			return true; // Some browsers/extensions strip Origin/Referer.
+			// Allow requests that appear to be legitimate browser requests
+			// This catches Beacon API and some AJAX requests
+			$content_type = isset($_SERVER['CONTENT_TYPE']) ? (string) $_SERVER['CONTENT_TYPE'] : '';
+			if (strpos($content_type, 'application/json') !== false) {
+				// JSON requests without Origin/Referer are suspicious in a browser context
+				// but we'll allow them with rate limiting as protection
+				// Some privacy browsers/extensions strip these headers
+				return true;
+			}
+			// Non-JSON requests without Origin are rejected
+			return false;
 		}
+
 		$ref_url = wp_parse_url($ref);
 		$ref_host = isset($ref_url['host']) ? strtolower((string) $ref_url['host']) : '';
-		return $ref_host === '' || $ref_host === $home_host;
+		return $ref_host === $home_host;
 	}
 
 	public static function handle_pageview(WP_REST_Request $request): WP_REST_Response|WP_Error {
@@ -149,13 +164,13 @@ final class SA_REST {
 		global $wpdb;
 		$table = SA_DB::table_name();
 
-		$page_url = esc_url_raw((string) $request->get_param('page_url'));
+		$page_url = self::validate_url((string) $request->get_param('page_url'));
 		if ($page_url === '') {
 			return new WP_Error('sa_invalid_page_url', __('Invalid page URL.', 'server-analytics'), array('status' => 400));
 		}
 
-		$referrer = esc_url_raw((string) $request->get_param('referrer'));
-		$session  = sanitize_text_field((string) $request->get_param('session'));
+		$referrer = self::validate_url((string) $request->get_param('referrer'));
+		$session  = self::validate_session_id((string) $request->get_param('session'));
 		$ip       = self::client_ip();
 		$ua       = self::sanitize_user_agent();
 
@@ -196,10 +211,17 @@ final class SA_REST {
 			return new WP_Error('sa_invalid_pageview', __('Invalid pageview id.', 'server-analytics'), array('status' => 400));
 		}
 
+		// Validate and sanitize session ID
+		$session = self::validate_session_id((string) $request->get_param('session'));
+		if ($session === '') {
+			return new WP_Error('sa_invalid_session', __('Invalid session.', 'server-analytics'), array('status' => 400));
+		}
+
 		$time_on_page = $request->get_param('time_on_page');
 		$scroll_depth = $request->get_param('scroll_depth');
 
-		$time = is_numeric($time_on_page) ? max(0, (int) $time_on_page) : null;
+		// Limit time_on_page to reasonable maximum (24 hours = 86400 seconds)
+		$time = is_numeric($time_on_page) ? min(86400, max(0, (int) $time_on_page)) : null;
 		$scroll = is_numeric($scroll_depth) ? min(100, max(0, (int) $scroll_depth)) : null;
 
 		if ($time === null && $scroll === null) {
@@ -220,8 +242,20 @@ final class SA_REST {
 			$formats[] = '%d';
 		}
 
+		// SECURITY: Validate session ownership to prevent IDOR attacks
+		// Only allow updating pageviews that belong to the same session
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-		$updated = $wpdb->update($table, $set, array('id' => $pageview_id, 'event_type' => 'pageview'), $formats, array('%d', '%s'));
+		$updated = $wpdb->update(
+			$table,
+			$set,
+			array(
+				'id'         => $pageview_id,
+				'event_type' => 'pageview',
+				'session_id' => $session, // Ownership check
+			),
+			$formats,
+			array('%d', '%s', '%s')
+		);
 
 		return new WP_REST_Response(array('updated' => (bool) $updated), 200);
 	}
@@ -236,12 +270,12 @@ final class SA_REST {
 		$table = SA_DB::table_name();
 
 		$pageview_id = absint($request->get_param('pageview_id'));
-		$page_url = esc_url_raw((string) $request->get_param('page_url'));
-		$link_url = esc_url_raw((string) $request->get_param('link_url'));
-		$referrer = esc_url_raw((string) $request->get_param('referrer'));
-		$session  = sanitize_text_field((string) $request->get_param('session'));
+		$page_url = self::validate_url((string) $request->get_param('page_url'));
+		$link_url = self::validate_url((string) $request->get_param('link_url'));
+		$referrer = self::validate_url((string) $request->get_param('referrer'));
+		$session  = self::validate_session_id((string) $request->get_param('session'));
 
-		if ($pageview_id <= 0 || $page_url === '' || $link_url === '') {
+		if ($pageview_id <= 0 || $page_url === '' || $link_url === '' || $session === '') {
 			return new WP_Error('sa_invalid_params', __('Invalid parameters.', 'server-analytics'), array('status' => 400));
 		}
 
@@ -271,6 +305,46 @@ final class SA_REST {
 		}
 
 		return new WP_REST_Response(array('ok' => true), 200);
+	}
+
+	/**
+	 * Validate and sanitize session ID.
+	 * Session IDs should be 32-character hex strings.
+	 */
+	private static function validate_session_id(string $session): string {
+		$session = sanitize_text_field($session);
+
+		// Session ID should be a hex string (32 chars from 16 bytes)
+		// Allow some flexibility in length (16-64 chars)
+		if ($session === '' || !preg_match('/^[a-f0-9]{16,64}$/i', $session)) {
+			return '';
+		}
+
+		return $session;
+	}
+
+	/**
+	 * Validate URL and ensure it uses safe schemes.
+	 * Blocks javascript:, data:, vbscript:, and other dangerous schemes.
+	 */
+	private static function validate_url(string $url): string {
+		$url = esc_url_raw($url);
+
+		if ($url === '') {
+			return '';
+		}
+
+		// Parse the URL and check the scheme
+		$parsed = wp_parse_url($url);
+		$scheme = isset($parsed['scheme']) ? strtolower($parsed['scheme']) : '';
+
+		// Only allow safe schemes
+		$allowed_schemes = array('http', 'https', 'mailto', 'tel', 'ftp');
+		if ($scheme !== '' && !in_array($scheme, $allowed_schemes, true)) {
+			return '';
+		}
+
+		return $url;
 	}
 
 	/**
