@@ -6,8 +6,8 @@ if (!defined('ABSPATH')) {
 	exit;
 }
 
-require_once SA_PLUGIN_DIR . 'includes/class-sa-list-table.php';
-require_once SA_PLUGIN_DIR . 'includes/class-sa-pdf.php';
+// Defer loading of heavy classes until actually needed
+// class-sa-list-table.php and class-sa-pdf.php are loaded on demand
 
 final class SA_Admin {
 	private const MENU_SLUG = 'server-analytics';
@@ -61,6 +61,9 @@ final class SA_Admin {
 		if (!current_user_can(sa_view_analytics_capability())) {
 			wp_die(esc_html__('You do not have permission to view analytics.', 'server-analytics'));
 		}
+
+		// Load list table class on demand
+		self::load_list_table_class();
 
 		$filters = self::current_filters();
 		$table = new SA_List_Table($filters);
@@ -155,12 +158,26 @@ final class SA_Admin {
 		check_admin_referer('sa_export');
 	}
 
+	/**
+	 * Load list table class on demand to reduce memory on other admin pages.
+	 */
+	private static function load_list_table_class(): void {
+		if (!class_exists('SA_List_Table')) {
+			require_once SA_PLUGIN_DIR . 'includes/class-sa-list-table.php';
+		}
+	}
+
+	/**
+	 * Load PDF class on demand.
+	 */
+	private static function load_pdf_class(): void {
+		if (!class_exists('SA_PDF')) {
+			require_once SA_PLUGIN_DIR . 'includes/class-sa-pdf.php';
+		}
+	}
+
 	public static function export_csv(): void {
 		self::assert_export_access();
-
-		$filters = self::current_filters();
-		$table = new SA_List_Table($filters);
-		$rows = $table->get_items_for_export(20000);
 
 		nocache_headers();
 		header('Content-Type: text/csv; charset=utf-8');
@@ -171,32 +188,123 @@ final class SA_Admin {
 			wp_die(esc_html__('Unable to generate export.', 'server-analytics'));
 		}
 
+		// Write header
 		fputcsv($out, array('created_at', 'event_type', 'page_url', 'referrer_url', 'link_url', 'ip_address', 'time_on_page', 'scroll_depth'));
-		foreach ($rows as $row) {
-			fputcsv(
-				$out,
-				array(
-					(string) ($row['created_at'] ?? ''),
-					(string) ($row['event_type'] ?? ''),
-					(string) ($row['page_url'] ?? ''),
-					(string) ($row['referrer_url'] ?? ''),
-					(string) ($row['link_url'] ?? ''),
-					(string) ($row['ip_address'] ?? ''),
-					(string) ($row['time_on_page'] ?? ''),
-					(string) ($row['scroll_depth'] ?? ''),
-				)
-			);
+
+		// Stream rows in batches to reduce memory usage
+		$filters = self::current_filters();
+		$batch_size = 1000;
+		$offset = 0;
+		$max_rows = 50000; // Safety limit
+
+		while ($offset < $max_rows) {
+			$rows = self::query_export_batch($filters, $batch_size, $offset);
+
+			if (empty($rows)) {
+				break;
+			}
+
+			foreach ($rows as $row) {
+				fputcsv(
+					$out,
+					array(
+						(string) ($row['created_at'] ?? ''),
+						(string) ($row['event_type'] ?? ''),
+						(string) ($row['page_url'] ?? ''),
+						(string) ($row['referrer_url'] ?? ''),
+						(string) ($row['link_url'] ?? ''),
+						(string) ($row['ip_address'] ?? ''),
+						(string) ($row['time_on_page'] ?? ''),
+						(string) ($row['scroll_depth'] ?? ''),
+					)
+				);
+			}
+
+			// Flush output buffer periodically
+			if (ob_get_level() > 0) {
+				ob_flush();
+			}
+			flush();
+
+			$offset += $batch_size;
+
+			// Free memory
+			unset($rows);
+
+			// If we got less than batch size, we're done
+			if (count($rows ?? array()) < $batch_size) {
+				break;
+			}
 		}
+
 		fclose($out);
 		exit;
+	}
+
+	/**
+	 * Query export data in batches for memory efficiency.
+	 *
+	 * @param array<string, mixed> $filters
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function query_export_batch(array $filters, int $limit, int $offset): array {
+		global $wpdb;
+		$table = SA_DB::table_name();
+
+		$where = array();
+		$params = array();
+
+		$event_type = isset($filters['event_type']) ? sanitize_key((string) $filters['event_type']) : '';
+		if ($event_type !== '') {
+			$where[] = 'event_type = %s';
+			$params[] = $event_type;
+		}
+
+		$date_from = isset($filters['date_from']) ? sanitize_text_field((string) $filters['date_from']) : '';
+		$date_to   = isset($filters['date_to']) ? sanitize_text_field((string) $filters['date_to']) : '';
+
+		if ($date_from !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $date_from)) {
+			$where[] = 'created_at >= %s';
+			$params[] = $date_from . ' 00:00:00';
+		}
+		if ($date_to !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $date_to)) {
+			$where[] = 'created_at <= %s';
+			$params[] = $date_to . ' 23:59:59';
+		}
+
+		$search = isset($filters['s']) ? sanitize_text_field((string) $filters['s']) : '';
+		if ($search !== '') {
+			$like = '%' . $wpdb->esc_like($search) . '%';
+			$where[] = '(page_url LIKE %s OR referrer_url LIKE %s OR link_url LIKE %s OR ip_address LIKE %s)';
+			array_push($params, $like, $like, $like, $like);
+		}
+
+		$where_sql = $where !== array() ? 'WHERE ' . implode(' AND ', $where) : '';
+
+		$params[] = $limit;
+		$params[] = $offset;
+
+		$sql = "SELECT created_at, event_type, page_url, referrer_url, link_url, ip_address, time_on_page, scroll_depth
+			FROM {$table}
+			{$where_sql}
+			ORDER BY created_at DESC
+			LIMIT %d OFFSET %d";
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$rows = $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A);
+		return is_array($rows) ? $rows : array();
 	}
 
 	public static function export_pdf(): void {
 		self::assert_export_access();
 
+		// Load classes on demand
+		self::load_list_table_class();
+		self::load_pdf_class();
+
 		$filters = self::current_filters();
 		$table = new SA_List_Table($filters);
-		$rows = $table->get_items_for_export(800); // keep a single-page PDF reasonable
+		$rows = $table->get_items_for_export(500); // Reduced for memory efficiency
 
 		$headers = array('created_at', 'event_type', 'page_url', 'referrer_url', 'link_url', 'ip_address', 'time_on_page', 'scroll_depth');
 		$pdf_rows = array();

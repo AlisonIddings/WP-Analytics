@@ -12,7 +12,13 @@ final class SA_DB {
 	private const OPTION_TOKEN = 'sa_public_token';
 	private const OPTION_ANONYMIZE_IP = 'sa_anonymize_ip';
 	private const OPTION_DATA_RETENTION = 'sa_data_retention_days';
-	private const DB_VERSION = '1.0.0';
+	private const DB_VERSION = '1.1.0'; // Bumped for ip_address index
+
+	/**
+	 * Static cache to avoid repeated DB queries within same request.
+	 * @var array<string, mixed>
+	 */
+	private static array $cache = array();
 
 	public static function table_name(): string {
 		global $wpdb;
@@ -37,16 +43,33 @@ final class SA_DB {
 		delete_option(self::OPTION_DATA_RETENTION);
 	}
 
+	/**
+	 * Get public token with static caching to avoid DB queries on every page load.
+	 */
 	public static function get_public_token(): string {
+		if (isset(self::$cache['token'])) {
+			return self::$cache['token'];
+		}
+
 		$token = get_option(self::OPTION_TOKEN, '');
-		return is_string($token) ? $token : '';
+		$token = is_string($token) ? $token : '';
+		self::$cache['token'] = $token;
+
+		return $token;
 	}
 
 	/**
-	 * Check if IP anonymization is enabled.
+	 * Check if IP anonymization is enabled (cached).
 	 */
 	public static function is_ip_anonymization_enabled(): bool {
-		return (bool) get_option(self::OPTION_ANONYMIZE_IP, true);
+		if (isset(self::$cache['anonymize_ip'])) {
+			return self::$cache['anonymize_ip'];
+		}
+
+		$enabled = (bool) get_option(self::OPTION_ANONYMIZE_IP, true);
+		self::$cache['anonymize_ip'] = $enabled;
+
+		return $enabled;
 	}
 
 	/**
@@ -73,6 +96,7 @@ final class SA_DB {
 
 	/**
 	 * Delete old analytics data based on retention setting.
+	 * Uses batched deletion to prevent table locks on large datasets.
 	 */
 	public static function cleanup_old_data(): int {
 		$days = self::get_data_retention_days();
@@ -83,13 +107,36 @@ final class SA_DB {
 		global $wpdb;
 		$table = self::table_name();
 		$cutoff = gmdate('Y-m-d H:i:s', strtotime("-{$days} days"));
+		$total_deleted = 0;
+		$batch_size = 1000; // Delete in batches to prevent table locks
+		$max_batches = 100; // Safety limit to prevent infinite loops
 
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-		$deleted = $wpdb->query(
-			$wpdb->prepare("DELETE FROM {$table} WHERE created_at < %s", $cutoff)
-		);
+		for ($i = 0; $i < $max_batches; $i++) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+			$deleted = $wpdb->query(
+				$wpdb->prepare(
+					"DELETE FROM {$table} WHERE created_at < %s LIMIT %d",
+					$cutoff,
+					$batch_size
+				)
+			);
 
-		return is_int($deleted) ? $deleted : 0;
+			if (!is_int($deleted) || $deleted === 0) {
+				break;
+			}
+
+			$total_deleted += $deleted;
+
+			// If we deleted less than batch size, we're done
+			if ($deleted < $batch_size) {
+				break;
+			}
+
+			// Small delay between batches to reduce DB load
+			usleep(10000); // 10ms
+		}
+
+		return $total_deleted;
 	}
 
 	/**
@@ -169,11 +216,40 @@ final class SA_DB {
 			KEY created_at (created_at),
 			KEY event_type (event_type),
 			KEY pageview_id (pageview_id),
-			KEY session_id (session_id)
+			KEY session_id (session_id),
+			KEY ip_address (ip_address)
 		) {$charset_collate};";
 
 		dbDelta($sql);
+
+		// Add index for existing installations (dbDelta doesn't always add new indexes)
+		self::maybe_add_ip_index();
+
 		update_option(self::OPTION_VERSION, self::DB_VERSION, true);
+	}
+
+	/**
+	 * Add ip_address index for existing installations.
+	 */
+	private static function maybe_add_ip_index(): void {
+		global $wpdb;
+		$table = self::table_name();
+
+		// Check if index exists
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$index_exists = $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE table_schema = %s AND table_name = %s AND index_name = %s",
+				DB_NAME,
+				$table,
+				'ip_address'
+			)
+		);
+
+		if ((int) $index_exists === 0) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+			$wpdb->query("ALTER TABLE {$table} ADD INDEX ip_address (ip_address)");
+		}
 	}
 }
 

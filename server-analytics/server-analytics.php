@@ -27,7 +27,11 @@ define('SA_PLUGIN_URL', plugin_dir_url(__FILE__));
 
 require_once SA_PLUGIN_DIR . 'includes/class-sa-db.php';
 require_once SA_PLUGIN_DIR . 'includes/class-sa-rest.php';
-require_once SA_PLUGIN_DIR . 'includes/class-sa-admin.php';
+
+// Defer admin class loading to reduce memory on frontend
+if (is_admin()) {
+	require_once SA_PLUGIN_DIR . 'includes/class-sa-admin.php';
+}
 
 /**
  * Capability required to view/export analytics.
@@ -69,7 +73,11 @@ add_action(
 	'plugins_loaded',
 	static function (): void {
 		SA_REST::init();
-		SA_Admin::init();
+
+		// Only initialize admin on admin pages to save resources
+		if (is_admin()) {
+			SA_Admin::init();
+		}
 	}
 );
 
@@ -110,12 +118,19 @@ add_action(
 		}
 
 		$handle = 'sa-tracker';
+
+		// Register script with defer strategy for non-blocking load (WP 6.3+)
+		$script_args = array(
+			'in_footer' => true,
+			'strategy'  => 'defer', // Non-blocking script loading
+		);
+
 		wp_register_script(
 			$handle,
 			SA_PLUGIN_URL . 'assets/js/sa-tracker.js',
 			array(),
 			SA_PLUGIN_VERSION,
-			true
+			$script_args
 		);
 
 		$settings = array(

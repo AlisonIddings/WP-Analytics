@@ -96,8 +96,8 @@ final class SA_REST {
 	}
 
 	/**
-	 * Simple rate limiting using transients.
-	 * Limits requests per IP to prevent abuse/DoS.
+	 * Simple rate limiting using transients with optimized DB access.
+	 * Uses a single atomic operation when possible.
 	 */
 	private static function check_rate_limit(): true|WP_Error {
 		$ip = self::client_ip_raw();
@@ -106,7 +106,33 @@ final class SA_REST {
 		}
 
 		$key = 'sa_rate_' . md5($ip);
-		$count = (int) get_transient($key);
+
+		// Use direct options for better performance than transients
+		// Transients can trigger multiple DB queries due to autoload checks
+		global $wpdb;
+
+		$option_name = '_transient_' . $key;
+		$timeout_name = '_transient_timeout_' . $key;
+
+		// Single query to get both value and timeout
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$row = $wpdb->get_row(
+			$wpdb->prepare(
+				"SELECT o.option_value, t.option_value as timeout 
+				FROM {$wpdb->options} o 
+				LEFT JOIN {$wpdb->options} t ON t.option_name = %s 
+				WHERE o.option_name = %s",
+				$timeout_name,
+				$option_name
+			)
+		);
+
+		$count = 0;
+		$now = time();
+
+		if ($row && $row->timeout && (int) $row->timeout > $now) {
+			$count = (int) $row->option_value;
+		}
 
 		if ($count >= self::RATE_LIMIT_MAX_REQUESTS) {
 			return new WP_Error(
@@ -116,6 +142,7 @@ final class SA_REST {
 			);
 		}
 
+		// Update or create the transient
 		set_transient($key, $count + 1, self::RATE_LIMIT_WINDOW);
 		return true;
 	}
