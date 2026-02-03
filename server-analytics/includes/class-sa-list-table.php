@@ -126,8 +126,9 @@ final class SA_List_Table extends WP_List_Table {
 	 */
 	public function column_default($item, $column_name): string {
 		$value = $item[$column_name] ?? '';
+		$event_type = $item['event_type'] ?? '';
 
-		if (in_array($column_name, array('page_url', 'referrer_url', 'link_url'), true)) {
+		if (in_array($column_name, array('page_url', 'referrer_url'), true)) {
 			$url = is_string($value) ? $value : '';
 			if ($url === '') {
 				return '&mdash;';
@@ -137,9 +138,47 @@ final class SA_List_Table extends WP_List_Table {
 			return '<a href="' . $href . '" target="_blank" rel="noopener noreferrer">' . $label . '</a>';
 		}
 
+		// Special handling for link_url - show conversion button info
+		if ($column_name === 'link_url') {
+			$url = is_string($value) ? $value : '';
+			if ($url === '') {
+				return '&mdash;';
+			}
+
+			// Check if this is a conversion event (format: button_id|button_name)
+			if ($event_type === 'conversion' && strpos($url, '|') !== false) {
+				$parts = explode('|', $url, 2);
+				$button_id = esc_html($parts[0]);
+				$button_name = isset($parts[1]) ? esc_html($parts[1]) : $button_id;
+				return '<span class="sa-conversion-badge" style="background:#4caf50;color:#fff;padding:2px 8px;border-radius:3px;font-size:12px;">' . 
+					   esc_html__('Conversion:', 'server-analytics') . ' ' . $button_name . '</span>' .
+					   '<br><small style="color:#666;">ID: ' . $button_id . '</small>';
+			}
+
+			$label = esc_html(self::truncate($url, 70));
+			$href  = esc_url($url);
+			return '<a href="' . $href . '" target="_blank" rel="noopener noreferrer">' . $label . '</a>';
+		}
+
 		if (in_array($column_name, array('time_on_page', 'scroll_depth'), true)) {
 			$num = is_numeric($value) ? (int) $value : null;
 			return $num === null ? '&mdash;' : esc_html((string) $num);
+		}
+
+		// Format event type nicely
+		if ($column_name === 'event_type') {
+			$type = is_string($value) ? $value : '';
+			$labels = array(
+				'pageview'   => __('Pageview', 'server-analytics'),
+				'link_click' => __('Link Click', 'server-analytics'),
+				'conversion' => __('Conversion', 'server-analytics'),
+			);
+			$label = $labels[$type] ?? $type;
+			
+			if ($type === 'conversion') {
+				return '<span style="color:#4caf50;font-weight:600;">' . esc_html($label) . '</span>';
+			}
+			return esc_html($label);
 		}
 
 		return $value === '' ? '&mdash;' : esc_html((string) $value);

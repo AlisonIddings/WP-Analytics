@@ -157,6 +157,12 @@ add_action(
 			$settings['excludedUrls'] = SA_DB::get_excluded_urls();
 		}
 
+		// Add conversion button IDs
+		$conversion_buttons = SA_DB::get_enabled_conversion_button_ids();
+		if (!empty($conversion_buttons)) {
+			$settings['conversionButtons'] = $conversion_buttons;
+		}
+
 		wp_add_inline_script(
 			$handle,
 			'window.saTrackerSettings = ' . wp_json_encode($settings) . ';',

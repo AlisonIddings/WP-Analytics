@@ -66,6 +66,23 @@ final class SA_REST {
 				),
 			)
 		);
+
+		register_rest_route(
+			self::NAMESPACE,
+			'/conversion',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array(__CLASS__, 'handle_conversion'),
+				'permission_callback' => '__return_true',
+				'args'                => array(
+					'token'       => array('type' => 'string', 'required' => true),
+					'pageview_id' => array('type' => 'integer', 'required' => true),
+					'button_id'   => array('type' => 'string', 'required' => true),
+					'page_url'    => array('type' => 'string', 'required' => true),
+					'session'     => array('type' => 'string', 'required' => true),
+				),
+			)
+		);
 	}
 
 	/**
@@ -357,6 +374,75 @@ final class SA_REST {
 		}
 
 		return new WP_REST_Response(array('ok' => true), 200);
+	}
+
+	public static function handle_conversion(WP_REST_Request $request): WP_REST_Response|WP_Error {
+		$valid = self::validate_request($request);
+		if (is_wp_error($valid)) {
+			return $valid;
+		}
+
+		global $wpdb;
+		$table = SA_DB::table_name();
+
+		$pageview_id = absint($request->get_param('pageview_id'));
+		$button_id = sanitize_html_class((string) $request->get_param('button_id'));
+		$page_url = self::validate_url((string) $request->get_param('page_url'));
+		$session = self::validate_session_id((string) $request->get_param('session'));
+
+		if ($pageview_id <= 0 || $button_id === '' || $page_url === '' || $session === '') {
+			return new WP_Error('sa_invalid_params', __('Invalid parameters.', 'server-analytics'), array('status' => 400));
+		}
+
+		// Verify this is a tracked button
+		$enabled_buttons = SA_DB::get_enabled_conversion_button_ids();
+		if (!in_array($button_id, $enabled_buttons, true)) {
+			return new WP_Error('sa_invalid_button', __('Button not configured for tracking.', 'server-analytics'), array('status' => 400));
+		}
+
+		// Verify pageview belongs to session
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$pageview_exists = $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT COUNT(*) FROM {$table} WHERE id = %d AND session_id = %s AND event_type = %s",
+				$pageview_id,
+				$session,
+				'pageview'
+			)
+		);
+
+		if ((int) $pageview_exists === 0) {
+			return new WP_Error('sa_invalid_pageview', __('Invalid pageview.', 'server-analytics'), array('status' => 400));
+		}
+
+		$ip = self::client_ip();
+		$ua = self::sanitize_user_agent();
+
+		// Get the friendly name for the button
+		$button_name = SA_DB::get_conversion_button_name($button_id);
+
+		$sql = "INSERT INTO {$table}
+			(event_type, pageview_id, session_id, page_url, link_url, ip_address, user_agent, time_on_page, scroll_depth, created_at)
+			VALUES (%s, %d, %s, %s, %s, %s, %s, NULL, NULL, %s)";
+
+		$args = array(
+			'conversion',
+			$pageview_id,
+			$session,
+			$page_url,
+			$button_id . '|' . $button_name, // Store button ID and name in link_url field
+			$ip,
+			$ua,
+			gmdate('Y-m-d H:i:s'),
+		);
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$ok = $wpdb->query($wpdb->prepare($sql, $args));
+		if ($ok === false) {
+			return new WP_Error('sa_db_error', __('Database insert failed.', 'server-analytics'), array('status' => 500));
+		}
+
+		return new WP_REST_Response(array('ok' => true, 'button' => $button_name), 200);
 	}
 
 	/**

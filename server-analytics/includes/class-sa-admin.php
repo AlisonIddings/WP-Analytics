@@ -141,9 +141,10 @@ final class SA_Admin {
 						<select id="sa-event-type" name="event_type">
 							<?php
 							$types = array(
-								''          => __('All', 'server-analytics'),
-								'pageview'  => __('Pageview', 'server-analytics'),
-								'link_click'=> __('Link click', 'server-analytics'),
+								''           => __('All', 'server-analytics'),
+								'pageview'   => __('Pageview', 'server-analytics'),
+								'link_click' => __('Link Click', 'server-analytics'),
+								'conversion' => __('Conversion', 'server-analytics'),
 							);
 							foreach ($types as $value => $label) {
 								printf(
@@ -407,6 +408,7 @@ final class SA_Admin {
 		$included_urls = SA_DB::get_included_urls_raw();
 		$anonymize_ip = SA_DB::is_ip_anonymization_enabled();
 		$retention_days = SA_DB::get_data_retention_days();
+		$conversion_buttons = SA_DB::get_conversion_buttons();
 
 		// Get all public post types
 		$post_types = get_post_types(array('public' => true), 'objects');
@@ -495,6 +497,81 @@ final class SA_Admin {
 					</tr>
 				</table>
 
+				<h2><?php echo esc_html__('Conversion Tracking', 'server-analytics'); ?></h2>
+				<p class="description">
+					<?php echo esc_html__('Track button clicks as conversions by specifying their HTML element IDs.', 'server-analytics'); ?>
+				</p>
+
+				<table class="form-table" role="presentation">
+					<tr>
+						<th scope="row"><?php echo esc_html__('Tracked Buttons', 'server-analytics'); ?></th>
+						<td>
+							<div id="sa-conversion-buttons">
+								<?php if (empty($conversion_buttons)) : ?>
+									<div class="sa-button-row" data-index="0">
+										<input type="text" name="conversion_buttons[0][id]" placeholder="<?php echo esc_attr__('Button ID (e.g., buy-now-btn)', 'server-analytics'); ?>" class="regular-text" />
+										<input type="text" name="conversion_buttons[0][name]" placeholder="<?php echo esc_attr__('Friendly Name (e.g., Buy Now)', 'server-analytics'); ?>" class="regular-text" />
+										<label>
+											<input type="checkbox" name="conversion_buttons[0][enabled]" value="1" checked />
+											<?php echo esc_html__('Enabled', 'server-analytics'); ?>
+										</label>
+										<button type="button" class="button sa-remove-button"><?php echo esc_html__('Remove', 'server-analytics'); ?></button>
+									</div>
+								<?php else : ?>
+									<?php foreach ($conversion_buttons as $index => $button) : ?>
+										<div class="sa-button-row" data-index="<?php echo esc_attr($index); ?>">
+											<input type="text" name="conversion_buttons[<?php echo esc_attr($index); ?>][id]" value="<?php echo esc_attr($button['id']); ?>" placeholder="<?php echo esc_attr__('Button ID', 'server-analytics'); ?>" class="regular-text" />
+											<input type="text" name="conversion_buttons[<?php echo esc_attr($index); ?>][name]" value="<?php echo esc_attr($button['name']); ?>" placeholder="<?php echo esc_attr__('Friendly Name', 'server-analytics'); ?>" class="regular-text" />
+											<label>
+												<input type="checkbox" name="conversion_buttons[<?php echo esc_attr($index); ?>][enabled]" value="1" <?php checked($button['enabled']); ?> />
+												<?php echo esc_html__('Enabled', 'server-analytics'); ?>
+											</label>
+											<button type="button" class="button sa-remove-button"><?php echo esc_html__('Remove', 'server-analytics'); ?></button>
+										</div>
+									<?php endforeach; ?>
+								<?php endif; ?>
+							</div>
+							<p>
+								<button type="button" class="button" id="sa-add-button"><?php echo esc_html__('Add Button', 'server-analytics'); ?></button>
+							</p>
+							<p class="description">
+								<?php echo esc_html__('Enter the HTML ID attribute of buttons you want to track (without the # symbol).', 'server-analytics'); ?><br />
+								<?php echo esc_html__('Example: If your button is <code>&lt;button id="purchase-btn"&gt;</code>, enter <code>purchase-btn</code>', 'server-analytics'); ?>
+							</p>
+
+							<script>
+							(function() {
+								var container = document.getElementById('sa-conversion-buttons');
+								var addBtn = document.getElementById('sa-add-button');
+								var index = <?php echo count($conversion_buttons) > 0 ? count($conversion_buttons) : 1; ?>;
+
+								addBtn.addEventListener('click', function() {
+									var row = document.createElement('div');
+									row.className = 'sa-button-row';
+									row.dataset.index = index;
+									row.innerHTML = '<input type="text" name="conversion_buttons[' + index + '][id]" placeholder="<?php echo esc_js(__('Button ID', 'server-analytics')); ?>" class="regular-text" /> ' +
+										'<input type="text" name="conversion_buttons[' + index + '][name]" placeholder="<?php echo esc_js(__('Friendly Name', 'server-analytics')); ?>" class="regular-text" /> ' +
+										'<label><input type="checkbox" name="conversion_buttons[' + index + '][enabled]" value="1" checked /> <?php echo esc_js(__('Enabled', 'server-analytics')); ?></label> ' +
+										'<button type="button" class="button sa-remove-button"><?php echo esc_js(__('Remove', 'server-analytics')); ?></button>';
+									container.appendChild(row);
+									index++;
+								});
+
+								container.addEventListener('click', function(e) {
+									if (e.target.classList.contains('sa-remove-button')) {
+										e.target.closest('.sa-button-row').remove();
+									}
+								});
+							})();
+							</script>
+							<style>
+								.sa-button-row { margin-bottom: 10px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+								.sa-button-row input[type="text"] { max-width: 250px; }
+							</style>
+						</td>
+					</tr>
+				</table>
+
 				<h2><?php echo esc_html__('Privacy Settings', 'server-analytics'); ?></h2>
 
 				<table class="form-table" role="presentation">
@@ -558,6 +635,21 @@ final class SA_Admin {
 		// Included URLs
 		$included_urls = isset($_POST['included_urls']) ? sanitize_textarea_field($_POST['included_urls']) : '';
 		SA_DB::set_included_urls($included_urls);
+
+		// Conversion buttons
+		$conversion_buttons = array();
+		if (isset($_POST['conversion_buttons']) && is_array($_POST['conversion_buttons'])) {
+			foreach ($_POST['conversion_buttons'] as $button) {
+				if (is_array($button) && !empty($button['id'])) {
+					$conversion_buttons[] = array(
+						'id'      => sanitize_html_class($button['id']),
+						'name'    => sanitize_text_field($button['name'] ?? ''),
+						'enabled' => !empty($button['enabled']),
+					);
+				}
+			}
+		}
+		SA_DB::set_conversion_buttons($conversion_buttons);
 
 		// IP anonymization
 		$anonymize_ip = isset($_POST['anonymize_ip']) && $_POST['anonymize_ip'] === '1';

@@ -267,5 +267,59 @@
     },
     { capture: true, passive: true }
   );
+
+  // Conversion tracking for specific button IDs
+  var conversionButtons = settings.conversionButtons || [];
+  var trackedConversions = {}; // Prevent duplicate tracking per session
+
+  if (conversionButtons.length > 0) {
+    document.addEventListener(
+      "click",
+      function (e) {
+        var target = e.target;
+        
+        // Walk up the DOM tree to find an element with a tracked ID
+        var element = target;
+        var buttonId = null;
+        
+        while (element && element !== document.body) {
+          if (element.id && conversionButtons.indexOf(element.id) !== -1) {
+            buttonId = element.id;
+            break;
+          }
+          element = element.parentNode;
+        }
+
+        if (!buttonId) return;
+        
+        // Prevent duplicate tracking for same button in same pageview
+        var trackKey = pageviewId + "_" + buttonId;
+        if (trackedConversions[trackKey]) return;
+        trackedConversions[trackKey] = true;
+
+        // Wait for pageview ID if not yet available
+        if (!pageviewId || !sessionId) {
+          // Store for later (limited)
+          if (Object.keys(trackedConversions).length < 10) {
+            trackedConversions[buttonId] = "pending";
+          }
+          return;
+        }
+
+        postJson(
+          "/conversion",
+          {
+            token: settings.token,
+            pageview_id: pageviewId,
+            button_id: buttonId,
+            page_url: pageUrl,
+            session: sessionId,
+          },
+          false
+        );
+      },
+      { capture: true, passive: true }
+    );
+  }
 })();
 

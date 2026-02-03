@@ -16,6 +16,7 @@ final class SA_DB {
 	private const OPTION_EXCLUDED_POST_TYPES = 'sa_excluded_post_types';
 	private const OPTION_EXCLUDED_URLS = 'sa_excluded_urls';
 	private const OPTION_INCLUDED_URLS = 'sa_included_urls';
+	private const OPTION_CONVERSION_BUTTONS = 'sa_conversion_buttons';
 	private const DB_VERSION = '1.1.0'; // Bumped for ip_address index
 
 	/**
@@ -49,6 +50,7 @@ final class SA_DB {
 		delete_option(self::OPTION_EXCLUDED_POST_TYPES);
 		delete_option(self::OPTION_EXCLUDED_URLS);
 		delete_option(self::OPTION_INCLUDED_URLS);
+		delete_option(self::OPTION_CONVERSION_BUTTONS);
 	}
 
 	/**
@@ -299,6 +301,91 @@ final class SA_DB {
 
 		// Check if URL contains the pattern (partial match)
 		return strpos($url, $pattern) !== false;
+	}
+
+	/**
+	 * Get conversion button configurations.
+	 * Each button has: id (element ID), name (friendly name), enabled (bool)
+	 *
+	 * @return array<int, array{id: string, name: string, enabled: bool}>
+	 */
+	public static function get_conversion_buttons(): array {
+		if (isset(self::$cache['conversion_buttons'])) {
+			return self::$cache['conversion_buttons'];
+		}
+
+		$buttons = get_option(self::OPTION_CONVERSION_BUTTONS, array());
+		if (!is_array($buttons)) {
+			$buttons = array();
+		}
+
+		// Validate and sanitize
+		$valid_buttons = array();
+		foreach ($buttons as $button) {
+			if (is_array($button) && !empty($button['id'])) {
+				$valid_buttons[] = array(
+					'id'      => sanitize_html_class($button['id']),
+					'name'    => sanitize_text_field($button['name'] ?? $button['id']),
+					'enabled' => !empty($button['enabled']),
+				);
+			}
+		}
+
+		self::$cache['conversion_buttons'] = $valid_buttons;
+		return $valid_buttons;
+	}
+
+	/**
+	 * Get only enabled conversion button IDs.
+	 *
+	 * @return string[]
+	 */
+	public static function get_enabled_conversion_button_ids(): array {
+		$buttons = self::get_conversion_buttons();
+		$ids = array();
+		foreach ($buttons as $button) {
+			if ($button['enabled']) {
+				$ids[] = $button['id'];
+			}
+		}
+		return $ids;
+	}
+
+	/**
+	 * Set conversion button configurations.
+	 *
+	 * @param array<int, array{id: string, name: string, enabled: bool}> $buttons
+	 */
+	public static function set_conversion_buttons(array $buttons): void {
+		$valid_buttons = array();
+		foreach ($buttons as $button) {
+			if (is_array($button) && !empty($button['id'])) {
+				$id = sanitize_html_class($button['id']);
+				if ($id !== '') {
+					$valid_buttons[] = array(
+						'id'      => $id,
+						'name'    => sanitize_text_field($button['name'] ?? $id),
+						'enabled' => !empty($button['enabled']),
+					);
+				}
+			}
+		}
+
+		update_option(self::OPTION_CONVERSION_BUTTONS, $valid_buttons, true);
+		unset(self::$cache['conversion_buttons']);
+	}
+
+	/**
+	 * Get conversion button name by ID.
+	 */
+	public static function get_conversion_button_name(string $button_id): string {
+		$buttons = self::get_conversion_buttons();
+		foreach ($buttons as $button) {
+			if ($button['id'] === $button_id) {
+				return $button['name'];
+			}
+		}
+		return $button_id;
 	}
 
 	/**
