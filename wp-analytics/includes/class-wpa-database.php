@@ -1480,6 +1480,147 @@ final class WPA_Database {
 	}
 
 	/**
+	 * Check if the daily stats table has any data.
+	 *
+	 * @return bool True if stats table has data.
+	 */
+	public static function has_aggregated_stats(): bool {
+		global $wpdb;
+		$stats_table = self::stats_table_name();
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$count = $wpdb->get_var( "SELECT COUNT(*) FROM {$stats_table} LIMIT 1" );
+
+		return (int) $count > 0;
+	}
+
+	/**
+	 * Get real-time summary stats directly from the events table.
+	 *
+	 * This is a fallback for when aggregated stats aren't available yet.
+	 *
+	 * @param string $start_date Start date (YYYY-MM-DD).
+	 * @param string $end_date   End date (YYYY-MM-DD).
+	 * @return array<string, int>
+	 */
+	public static function get_realtime_summary_stats( string $start_date, string $end_date ): array {
+		global $wpdb;
+		$events_table = self::table_name();
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$result = $wpdb->get_row(
+			$wpdb->prepare(
+				"SELECT 
+					COALESCE(SUM(CASE WHEN event_type = 'pageview' THEN 1 ELSE 0 END), 0) as total_pageviews,
+					COALESCE(COUNT(DISTINCT session_id), 0) as total_sessions,
+					COALESCE(SUM(CASE WHEN event_type = 'link_click' THEN 1 ELSE 0 END), 0) as total_clicks,
+					COALESCE(SUM(CASE WHEN event_type = 'conversion' THEN 1 ELSE 0 END), 0) as total_conversions,
+					COALESCE(ROUND(AVG(CASE WHEN event_type = 'pageview' AND time_on_page > 0 THEN time_on_page ELSE NULL END)), 0) as avg_time,
+					COALESCE(ROUND(AVG(CASE WHEN event_type = 'pageview' AND scroll_depth > 0 THEN scroll_depth ELSE NULL END)), 0) as avg_scroll
+				FROM {$events_table}
+				WHERE DATE(created_at) BETWEEN %s AND %s",
+				$start_date,
+				$end_date
+			),
+			ARRAY_A
+		);
+
+		return is_array( $result ) ? array_map( 'intval', $result ) : array(
+			'total_pageviews'   => 0,
+			'total_sessions'    => 0,
+			'total_clicks'      => 0,
+			'total_conversions' => 0,
+			'avg_time'          => 0,
+			'avg_scroll'        => 0,
+		);
+	}
+
+	/**
+	 * Get real-time top pages directly from the events table.
+	 *
+	 * This is a fallback for when aggregated stats aren't available yet.
+	 *
+	 * @param string $start_date Start date (YYYY-MM-DD).
+	 * @param string $end_date   End date (YYYY-MM-DD).
+	 * @param int    $limit      Maximum results.
+	 * @return array<int, array<string, mixed>>
+	 */
+	public static function get_realtime_top_pages( string $start_date, string $end_date, int $limit = 20 ): array {
+		global $wpdb;
+		$events_table = self::table_name();
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$results = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT 
+					page_url,
+					COUNT(*) as total_pageviews,
+					COUNT(DISTINCT session_id) as total_sessions,
+					ROUND(AVG(NULLIF(time_on_page, 0))) as avg_time,
+					ROUND(AVG(NULLIF(scroll_depth, 0))) as avg_scroll,
+					0 as total_conversions
+				FROM {$events_table}
+				WHERE event_type = 'pageview'
+					AND DATE(created_at) BETWEEN %s AND %s
+				GROUP BY page_url
+				ORDER BY total_pageviews DESC
+				LIMIT %d",
+				$start_date,
+				$end_date,
+				$limit
+			),
+			ARRAY_A
+		);
+
+		if ( ! is_array( $results ) ) {
+			return array();
+		}
+
+		// Convert page_url to page_path for consistency
+		foreach ( $results as &$row ) {
+			$row['page_path'] = self::extract_path( $row['page_url'] );
+			unset( $row['page_url'] );
+		}
+
+		return $results;
+	}
+
+	/**
+	 * Get real-time daily pageview trends from the events table.
+	 *
+	 * This is a fallback for when aggregated stats aren't available yet.
+	 *
+	 * @param int $days Number of days to show.
+	 * @return array<int, array<string, mixed>>
+	 */
+	public static function get_realtime_daily_trends( int $days = 30 ): array {
+		global $wpdb;
+		$events_table = self::table_name();
+
+		$days = max( 1, min( 365, $days ) );
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$results = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT 
+					DATE(created_at) as period,
+					SUM(CASE WHEN event_type = 'pageview' THEN 1 ELSE 0 END) as pageviews,
+					COUNT(DISTINCT session_id) as sessions,
+					SUM(CASE WHEN event_type = 'link_click' THEN 1 ELSE 0 END) as clicks,
+					SUM(CASE WHEN event_type = 'conversion' THEN 1 ELSE 0 END) as conversions
+				FROM {$events_table}
+				WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL %d DAY)
+				GROUP BY DATE(created_at)
+				ORDER BY period ASC",
+				$days
+			),
+			ARRAY_A
+		);
+
+		return is_array( $results ) ? $results : array();
+	}
+
+	/**
 	 * Cleanup old aggregated stats based on retention setting.
 	 *
 	 * Keeps aggregated data 3x longer than detailed events for
