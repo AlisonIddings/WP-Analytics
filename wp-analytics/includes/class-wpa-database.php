@@ -1620,6 +1620,267 @@ final class WPA_Database {
 		return is_array( $results ) ? $results : array();
 	}
 
+	/*
+	 * =========================================================================
+	 * PAGE ANALYTICS
+	 * =========================================================================
+	 */
+
+	/**
+	 * Get analytics for a specific page URL.
+	 *
+	 * @param string $page_path The page path to analyze.
+	 * @param string $start_date Start date (YYYY-MM-DD).
+	 * @param string $end_date End date (YYYY-MM-DD).
+	 * @return array<string, mixed>
+	 */
+	public static function get_page_analytics( string $page_path, string $start_date, string $end_date ): array {
+		global $wpdb;
+		$table = self::table_name();
+
+		// Build URL pattern for matching (path can be part of full URL)
+		$path_pattern = '%' . $wpdb->esc_like( $page_path ) . '%';
+
+		// Get summary stats for this page
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$summary = $wpdb->get_row(
+			$wpdb->prepare(
+				"SELECT 
+					COUNT(CASE WHEN event_type = 'pageview' THEN 1 END) as pageviews,
+					COUNT(DISTINCT session_id) as unique_sessions,
+					ROUND(AVG(CASE WHEN event_type = 'pageview' AND time_on_page > 0 THEN time_on_page END)) as avg_time,
+					ROUND(AVG(CASE WHEN event_type = 'pageview' AND scroll_depth > 0 THEN scroll_depth END)) as avg_scroll,
+					COUNT(CASE WHEN event_type = 'link_click' THEN 1 END) as link_clicks,
+					COUNT(CASE WHEN event_type = 'conversion' THEN 1 END) as conversions
+				FROM {$table}
+				WHERE page_url LIKE %s
+					AND DATE(created_at) BETWEEN %s AND %s",
+				$path_pattern,
+				$start_date,
+				$end_date
+			),
+			ARRAY_A
+		);
+
+		return is_array( $summary ) ? $summary : array();
+	}
+
+	/**
+	 * Get daily trends for a specific page.
+	 *
+	 * @param string $page_path The page path to analyze.
+	 * @param int $days Number of days.
+	 * @return array<int, array<string, mixed>>
+	 */
+	public static function get_page_daily_trends( string $page_path, int $days = 30 ): array {
+		global $wpdb;
+		$table = self::table_name();
+
+		$path_pattern = '%' . $wpdb->esc_like( $page_path ) . '%';
+		$days = max( 1, min( 365, $days ) );
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$results = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT 
+					DATE(created_at) as period,
+					COUNT(CASE WHEN event_type = 'pageview' THEN 1 END) as pageviews,
+					COUNT(DISTINCT session_id) as sessions
+				FROM {$table}
+				WHERE page_url LIKE %s
+					AND created_at >= DATE_SUB(CURDATE(), INTERVAL %d DAY)
+				GROUP BY DATE(created_at)
+				ORDER BY period ASC",
+				$path_pattern,
+				$days
+			),
+			ARRAY_A
+		);
+
+		return is_array( $results ) ? $results : array();
+	}
+
+	/**
+	 * Get sessions that visited a specific page.
+	 *
+	 * @param string $page_path The page path.
+	 * @param int $limit Maximum results.
+	 * @return array<int, array<string, mixed>>
+	 */
+	public static function get_page_sessions( string $page_path, int $limit = 50 ): array {
+		global $wpdb;
+		$table = self::table_name();
+
+		$path_pattern = '%' . $wpdb->esc_like( $page_path ) . '%';
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$results = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT 
+					session_id,
+					MIN(created_at) as first_visit,
+					MAX(created_at) as last_activity,
+					MAX(time_on_page) as time_on_page,
+					MAX(scroll_depth) as scroll_depth,
+					ip_address
+				FROM {$table}
+				WHERE page_url LIKE %s
+					AND session_id IS NOT NULL
+					AND session_id != ''
+				GROUP BY session_id, ip_address
+				ORDER BY first_visit DESC
+				LIMIT %d",
+				$path_pattern,
+				$limit
+			),
+			ARRAY_A
+		);
+
+		return is_array( $results ) ? $results : array();
+	}
+
+	/**
+	 * Get links clicked from a specific page.
+	 *
+	 * @param string $page_path The page path.
+	 * @param int $limit Maximum results.
+	 * @return array<int, array<string, mixed>>
+	 */
+	public static function get_page_outbound_links( string $page_path, int $limit = 20 ): array {
+		global $wpdb;
+		$table = self::table_name();
+
+		$path_pattern = '%' . $wpdb->esc_like( $page_path ) . '%';
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$results = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT 
+					link_url,
+					COUNT(*) as click_count
+				FROM {$table}
+				WHERE page_url LIKE %s
+					AND event_type = 'link_click'
+					AND link_url IS NOT NULL
+					AND link_url != ''
+				GROUP BY link_url
+				ORDER BY click_count DESC
+				LIMIT %d",
+				$path_pattern,
+				$limit
+			),
+			ARRAY_A
+		);
+
+		return is_array( $results ) ? $results : array();
+	}
+
+	/*
+	 * =========================================================================
+	 * SESSION/USER JOURNEY
+	 * =========================================================================
+	 */
+
+	/**
+	 * Get all events for a specific session (user journey).
+	 *
+	 * @param string $session_id The session ID.
+	 * @return array<int, array<string, mixed>>
+	 */
+	public static function get_session_journey( string $session_id ): array {
+		global $wpdb;
+		$table = self::table_name();
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$results = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT 
+					id,
+					event_type,
+					page_url,
+					referrer_url,
+					link_url,
+					time_on_page,
+					scroll_depth,
+					created_at
+				FROM {$table}
+				WHERE session_id = %s
+				ORDER BY created_at ASC, id ASC",
+				$session_id
+			),
+			ARRAY_A
+		);
+
+		return is_array( $results ) ? $results : array();
+	}
+
+	/**
+	 * Get session summary info.
+	 *
+	 * @param string $session_id The session ID.
+	 * @return array<string, mixed>
+	 */
+	public static function get_session_summary( string $session_id ): array {
+		global $wpdb;
+		$table = self::table_name();
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$summary = $wpdb->get_row(
+			$wpdb->prepare(
+				"SELECT 
+					MIN(created_at) as session_start,
+					MAX(created_at) as session_end,
+					COUNT(CASE WHEN event_type = 'pageview' THEN 1 END) as pages_viewed,
+					COUNT(CASE WHEN event_type = 'link_click' THEN 1 END) as links_clicked,
+					COUNT(CASE WHEN event_type = 'conversion' THEN 1 END) as conversions,
+					SUM(CASE WHEN event_type = 'pageview' THEN time_on_page ELSE 0 END) as total_time,
+					ROUND(AVG(CASE WHEN event_type = 'pageview' AND scroll_depth > 0 THEN scroll_depth END)) as avg_scroll,
+					MAX(ip_address) as ip_address
+				FROM {$table}
+				WHERE session_id = %s",
+				$session_id
+			),
+			ARRAY_A
+		);
+
+		return is_array( $summary ) ? $summary : array();
+	}
+
+	/**
+	 * Get recent sessions with summary info.
+	 *
+	 * @param int $limit Maximum results.
+	 * @return array<int, array<string, mixed>>
+	 */
+	public static function get_recent_sessions( int $limit = 50 ): array {
+		global $wpdb;
+		$table = self::table_name();
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$results = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT 
+					session_id,
+					MIN(created_at) as session_start,
+					MAX(created_at) as session_end,
+					COUNT(CASE WHEN event_type = 'pageview' THEN 1 END) as pages_viewed,
+					COUNT(CASE WHEN event_type = 'conversion' THEN 1 END) as conversions,
+					MAX(ip_address) as ip_address,
+					MIN(page_url) as entry_page
+				FROM {$table}
+				WHERE session_id IS NOT NULL
+					AND session_id != ''
+				GROUP BY session_id
+				ORDER BY session_start DESC
+				LIMIT %d",
+				$limit
+			),
+			ARRAY_A
+		);
+
+		return is_array( $results ) ? $results : array();
+	}
+
 	/**
 	 * Cleanup old aggregated stats based on retention setting.
 	 *

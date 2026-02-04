@@ -66,6 +66,7 @@ final class WPA_List_Table extends WP_List_Table {
 			'page_url'     => __( 'Page URL', 'wp-analytics' ),
 			'referrer_url' => __( 'Referrer', 'wp-analytics' ),
 			'link_url'     => __( 'Link Clicked', 'wp-analytics' ),
+			'session_id'   => __( 'Session', 'wp-analytics' ),
 			'ip_address'   => __( 'IP Address', 'wp-analytics' ),
 			'time_on_page' => __( 'Time (s)', 'wp-analytics' ),
 			'scroll_depth' => __( 'Scroll (%)', 'wp-analytics' ),
@@ -184,13 +185,26 @@ final class WPA_List_Table extends WP_List_Table {
 		$value = $item[$column_name] ?? '';
 		$event_type = $item['event_type'] ?? '';
 
-		// Display URLs as relative paths but link to full URL
-		if (in_array($column_name, array('page_url', 'referrer_url'), true)) {
+		// Display URLs as relative paths with links to page analytics
+		if ($column_name === 'page_url') {
 			$url = is_string($value) ? $value : '';
 			if ($url === '') {
 				return '&mdash;';
 			}
-			// Extract relative path for display
+			$path = self::extract_relative_path($url);
+			$display_path = esc_html(self::truncate($path, 50));
+			$details_url = admin_url('admin.php?page=wp-analytics-page&path=' . urlencode($path));
+			$external_url = esc_url($url);
+			return '<a href="' . esc_url($details_url) . '" title="' . esc_attr__('View page analytics', 'wp-analytics') . '">' . $display_path . '</a>' .
+				   ' <a href="' . $external_url . '" target="_blank" rel="noopener noreferrer" style="color:#999;" title="' . esc_attr($url) . '"><span class="dashicons dashicons-external" style="font-size:14px;vertical-align:middle;"></span></a>';
+		}
+
+		// Referrer URL - just external link
+		if ($column_name === 'referrer_url') {
+			$url = is_string($value) ? $value : '';
+			if ($url === '') {
+				return '&mdash;';
+			}
 			$path = self::extract_relative_path($url);
 			$display_path = esc_html(self::truncate($path, 60));
 			$href = esc_url($url);
@@ -224,6 +238,17 @@ final class WPA_List_Table extends WP_List_Table {
 		if (in_array($column_name, array('time_on_page', 'scroll_depth'), true)) {
 			$num = is_numeric($value) ? (int) $value : null;
 			return $num === null ? '&mdash;' : esc_html((string) $num);
+		}
+
+		// Session ID with link to user journey
+		if ($column_name === 'session_id') {
+			$session = is_string($value) ? $value : '';
+			if ($session === '') {
+				return '&mdash;';
+			}
+			$short_id = substr($session, 0, 8) . '...';
+			$journey_url = admin_url('admin.php?page=wp-analytics-session&session=' . urlencode($session));
+			return '<a href="' . esc_url($journey_url) . '" title="' . esc_attr__('View user journey', 'wp-analytics') . '">' . esc_html($short_id) . '</a>';
 		}
 
 		// Format event type nicely
@@ -336,7 +361,7 @@ final class WPA_List_Table extends WP_List_Table {
 			$limit_sql = $wpdb->prepare('LIMIT %d', $per_page);
 		}
 
-		$sql = "SELECT id, created_at, event_type, page_url, referrer_url, link_url, ip_address, time_on_page, scroll_depth
+		$sql = "SELECT id, created_at, event_type, page_url, referrer_url, link_url, session_id, ip_address, time_on_page, scroll_depth
 			FROM {$table}
 			{$where_sql}
 			ORDER BY {$orderby} {$order}

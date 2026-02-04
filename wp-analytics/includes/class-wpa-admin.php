@@ -106,6 +106,26 @@ final class WPA_Admin {
 			self::MENU_SLUG . '-settings',
 			array( __CLASS__, 'render_settings_page' )
 		);
+
+		// User Sessions submenu
+		add_submenu_page(
+			self::MENU_SLUG,
+			__( 'User Sessions', 'wp-analytics' ),
+			__( 'User Sessions', 'wp-analytics' ),
+			wpa_view_analytics_capability(),
+			self::MENU_SLUG . '-session',
+			array( __CLASS__, 'render_session_page' )
+		);
+
+		// Hidden page for single page details (no menu entry)
+		add_submenu_page(
+			null, // No parent = hidden from menu
+			__( 'Page Analytics', 'wp-analytics' ),
+			__( 'Page Analytics', 'wp-analytics' ),
+			wpa_view_analytics_capability(),
+			self::MENU_SLUG . '-page',
+			array( __CLASS__, 'render_page_details' )
+		);
 	}
 
 	/**
@@ -116,6 +136,26 @@ final class WPA_Admin {
 	public static function render_overview_page(): void {
 		self::load_analytics_class();
 		WPA_Analytics::render_page();
+	}
+
+	/**
+	 * Render the session/user journey page.
+	 *
+	 * @return void
+	 */
+	public static function render_session_page(): void {
+		self::load_session_class();
+		WPA_Session_Details::render_page();
+	}
+
+	/**
+	 * Render the single page details page.
+	 *
+	 * @return void
+	 */
+	public static function render_page_details(): void {
+		self::load_page_details_class();
+		WPA_Page_Details::render_page();
 	}
 
 	/**
@@ -148,6 +188,28 @@ final class WPA_Admin {
 	private static function load_analytics_class(): void {
 		if ( ! class_exists( 'WPA_Analytics' ) ) {
 			require_once WPA_PLUGIN_DIR . 'includes/class-wpa-analytics.php';
+		}
+	}
+
+	/**
+	 * Load the session details class on demand.
+	 *
+	 * @return void
+	 */
+	private static function load_session_class(): void {
+		if ( ! class_exists( 'WPA_Session_Details' ) ) {
+			require_once WPA_PLUGIN_DIR . 'includes/class-wpa-session-details.php';
+		}
+	}
+
+	/**
+	 * Load the page details class on demand.
+	 *
+	 * @return void
+	 */
+	private static function load_page_details_class(): void {
+		if ( ! class_exists( 'WPA_Page_Details' ) ) {
+			require_once WPA_PLUGIN_DIR . 'includes/class-wpa-page-details.php';
 		}
 	}
 

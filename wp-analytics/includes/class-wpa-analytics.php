@@ -210,8 +210,11 @@ final class WPA_Analytics {
 							<?php foreach ( $top_pages as $page ) : ?>
 								<tr>
 									<td class="wpa-col-page">
-										<a href="<?php echo esc_url( home_url( $page['page_path'] ) ); ?>" target="_blank" rel="noopener noreferrer" title="<?php echo esc_attr( $page['page_path'] ); ?>">
+										<a href="<?php echo esc_url( admin_url( 'admin.php?page=wp-analytics-page&path=' . urlencode( $page['page_path'] ) ) ); ?>" title="<?php echo esc_attr( __( 'View page analytics', 'wp-analytics' ) ); ?>">
 											<?php echo esc_html( self::truncate_path( $page['page_path'], 60 ) ); ?>
+										</a>
+										<a href="<?php echo esc_url( home_url( $page['page_path'] ) ); ?>" target="_blank" rel="noopener noreferrer" style="margin-left: 5px; color: #999;" title="<?php echo esc_attr( __( 'View page', 'wp-analytics' ) ); ?>">
+											<span class="dashicons dashicons-external" style="font-size: 14px; vertical-align: middle;"></span>
 										</a>
 									</td>
 									<td class="wpa-col-num"><?php echo esc_html( number_format_i18n( (int) $page['total_pageviews'] ) ); ?></td>
