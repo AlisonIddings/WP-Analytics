@@ -224,7 +224,7 @@ final class WPA_Page_Details {
 
 			<?php if ( ! empty( $trends ) ) : ?>
 			<!-- Chart.js -->
-			<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" integrity="sha384-fMnnnlPH8grVo/RbY/FMpn6X3L9RfMsOG37fOqVlkjMFZ0160sJALqniJQx/nSUG" crossorigin="anonymous"></script>
+			<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" integrity="sha384-9nhczxUqK87bcKHh20fSQcTGD4qq5GhayNYSYWqwBkINBhOfQLg/P5HG5lF1urn4" crossorigin="anonymous"></script>
 			<script>
 			document.addEventListener('DOMContentLoaded', function() {
 				var ctx = document.getElementById('wpa-page-chart');
