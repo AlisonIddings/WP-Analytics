@@ -1,16 +1,30 @@
 <?php
+/**
+ * Minimal PDF generator for WP Analytics.
+ *
+ * Generates simple text-only PDFs without external dependencies.
+ * Uses built-in Helvetica font for maximum compatibility.
+ *
+ * @package WP_Analytics
+ * @since 1.0.0
+ */
 
 declare(strict_types=1);
 
-if (!defined('ABSPATH')) {
+// Prevent direct file access
+if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
 /**
- * Minimal PDF generator (single-page, text-only).
- * Keeps plugin dependency-free.
+ * Class WPA_PDF
+ *
+ * Generates PDF exports of analytics data using pure PHP.
+ * No external libraries required.
+ *
+ * @since 1.0.0
  */
-final class SA_PDF {
+final class WPA_PDF {
 	/**
 	 * @param string[] $headers
 	 * @param array<int, array<int, string>> $rows

@@ -1,0 +1,492 @@
+/**
+ * WP Analytics Admin Styles
+ *
+ * Modern, clean styles for the WP Analytics admin interface.
+ *
+ * @package WP_Analytics
+ * @since 1.0.0
+ */
+
+/* ==========================================================================
+   CSS Variables
+   ========================================================================== */
+
+:root {
+  --wpa-primary: #2271b1;
+  --wpa-primary-hover: #135e96;
+  --wpa-success: #4caf50;
+  --wpa-warning: #f0b849;
+  --wpa-danger: #d63638;
+  --wpa-muted: #646970;
+  --wpa-border: #c3c4c7;
+  --wpa-bg-light: #f6f7f7;
+  --wpa-card-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --wpa-radius: 6px;
+}
+
+/* ==========================================================================
+   Event Log Page - Filter Bar
+   ========================================================================== */
+
+.wpa-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-end;
+  margin: 20px 0;
+  padding: 20px;
+  background: #fff;
+  border: 1px solid var(--wpa-border);
+  border-radius: var(--wpa-radius);
+  box-shadow: var(--wpa-card-shadow);
+}
+
+.wpa-filters .wpa-field {
+  min-width: 160px;
+}
+
+.wpa-filters label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: #1d2327;
+  font-size: 13px;
+}
+
+.wpa-filters input[type="date"],
+.wpa-filters input[type="search"],
+.wpa-filters select {
+  width: 100%;
+  max-width: 220px;
+  padding: 8px 12px;
+  border: 1px solid var(--wpa-border);
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.wpa-filters input:focus,
+.wpa-filters select:focus {
+  border-color: var(--wpa-primary);
+  box-shadow: 0 0 0 1px var(--wpa-primary);
+  outline: none;
+}
+
+/* ==========================================================================
+   Action Buttons
+   ========================================================================== */
+
+.wpa-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 20px 0;
+}
+
+.wpa-actions .button {
+  white-space: nowrap;
+}
+
+/* ==========================================================================
+   Data Table Improvements
+   ========================================================================== */
+
+.wp-list-table {
+  border-collapse: collapse;
+  border-radius: var(--wpa-radius);
+  overflow: hidden;
+}
+
+.wp-list-table thead th {
+  background: var(--wpa-bg-light);
+  border-bottom: 2px solid var(--wpa-border);
+  font-weight: 600;
+  padding: 12px 10px;
+}
+
+.wp-list-table tbody td {
+  padding: 12px 10px;
+  vertical-align: middle;
+}
+
+.wp-list-table tbody tr:hover {
+  background: #f8fafc;
+}
+
+/* Conversion badge */
+.wpa-conversion-badge {
+  display: inline-block;
+  background: var(--wpa-success);
+  color: #fff;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* Muted text */
+.wpa-muted {
+  color: var(--wpa-muted);
+  font-size: 12px;
+}
+
+/* URL links */
+.wp-list-table a {
+  color: var(--wpa-primary);
+  text-decoration: none;
+  word-break: break-word;
+}
+
+.wp-list-table a:hover {
+  color: var(--wpa-primary-hover);
+  text-decoration: underline;
+}
+
+/* ==========================================================================
+   Mobile Info Display
+   ========================================================================== */
+
+.wpa-mobile-info {
+  display: none;
+}
+
+/* ==========================================================================
+   Data Management Section
+   ========================================================================== */
+
+.wpa-data-management {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  margin-top: 24px;
+}
+
+.wpa-delete-section {
+  background: #fff;
+  border: 1px solid var(--wpa-border);
+  border-radius: var(--wpa-radius);
+  padding: 20px;
+  min-width: 320px;
+  box-shadow: var(--wpa-card-shadow);
+}
+
+.wpa-delete-section h3 {
+  margin-top: 0;
+  margin-bottom: 16px;
+  color: #1d2327;
+  font-size: 15px;
+}
+
+/* ==========================================================================
+   Analytics Overview Page
+   ========================================================================== */
+
+.wpa-analytics-wrap {
+  max-width: 1400px;
+}
+
+/* Date Controls */
+.wpa-date-controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 20px 0;
+  padding: 16px 20px;
+  background: #fff;
+  border: 1px solid var(--wpa-border);
+  border-radius: var(--wpa-radius);
+  box-shadow: var(--wpa-card-shadow);
+}
+
+.wpa-date-controls form {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.wpa-date-controls label {
+  font-weight: 500;
+  color: #1d2327;
+  margin-right: 4px;
+}
+
+.wpa-date-controls select {
+  padding: 8px 12px;
+  border: 1px solid var(--wpa-border);
+  border-radius: 4px;
+  font-size: 14px;
+  min-width: 160px;
+}
+
+/* Stats Cards */
+.wpa-stats-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 20px;
+  margin: 24px 0;
+}
+
+.wpa-stat-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 24px;
+  background: #fff;
+  border: 1px solid var(--wpa-border);
+  border-radius: var(--wpa-radius);
+  box-shadow: var(--wpa-card-shadow);
+  transition: box-shadow 0.2s ease;
+}
+
+.wpa-stat-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.wpa-stat-icon {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--wpa-bg-light);
+  border-radius: 50%;
+  color: var(--wpa-primary);
+  font-size: 24px;
+}
+
+.wpa-stat-icon.dashicons::before {
+  font-size: 24px;
+  width: 24px;
+  height: 24px;
+}
+
+.wpa-stat-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.wpa-stat-number {
+  font-size: 28px;
+  font-weight: 700;
+  color: #1d2327;
+  line-height: 1.2;
+}
+
+.wpa-stat-label {
+  font-size: 13px;
+  color: var(--wpa-muted);
+  margin-top: 4px;
+}
+
+/* Chart Container */
+.wpa-chart-container {
+  background: #fff;
+  border: 1px solid var(--wpa-border);
+  border-radius: var(--wpa-radius);
+  padding: 24px;
+  margin: 24px 0;
+  box-shadow: var(--wpa-card-shadow);
+}
+
+.wpa-chart-container h2 {
+  margin-top: 0;
+  margin-bottom: 20px;
+  font-size: 16px;
+  color: #1d2327;
+}
+
+.wpa-chart-container canvas {
+  max-height: 350px;
+}
+
+/* No Data Message */
+.wpa-no-data {
+  padding: 40px;
+  text-align: center;
+  color: var(--wpa-muted);
+  font-style: italic;
+}
+
+/* Top Pages Table */
+.wpa-top-pages {
+  background: #fff;
+  border: 1px solid var(--wpa-border);
+  border-radius: var(--wpa-radius);
+  padding: 24px;
+  margin: 24px 0;
+  box-shadow: var(--wpa-card-shadow);
+}
+
+.wpa-top-pages h2 {
+  margin-top: 0;
+  margin-bottom: 20px;
+  font-size: 16px;
+  color: #1d2327;
+}
+
+.wpa-top-pages .wp-list-table {
+  margin-top: 0;
+}
+
+.wpa-top-pages .wpa-col-page {
+  width: 40%;
+}
+
+.wpa-top-pages .wpa-col-num {
+  width: 10%;
+  text-align: right;
+}
+
+.wpa-top-pages tbody td.wpa-col-num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ==========================================================================
+   Mobile Responsive Styles
+   ========================================================================== */
+
+@media screen and (max-width: 782px) {
+  
+  /* Mobile info panel in collapsed list table rows */
+  .wpa-mobile-info {
+    display: block;
+    margin: 10px 0;
+    padding: 10px;
+    background: var(--wpa-bg-light);
+    border-radius: var(--wpa-radius);
+    font-size: 13px;
+  }
+  
+  /* Event type badge */
+  .wpa-mobile-info .wpa-mobile-event {
+    display: inline-block;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 12px;
+    margin-right: 8px;
+    background: var(--wpa-primary);
+    color: #fff;
+    font-size: 12px;
+  }
+  
+  /* Event type specific colors */
+  .wpa-mobile-info .wpa-event-pageview {
+    background: var(--wpa-primary);
+  }
+  
+  .wpa-mobile-info .wpa-event-link_click {
+    background: var(--wpa-warning);
+    color: #1d2327;
+  }
+  
+  .wpa-mobile-info .wpa-event-conversion {
+    background: var(--wpa-success);
+  }
+  
+  /* Page URL display */
+  .wpa-mobile-info .wpa-mobile-url {
+    display: block;
+    margin-top: 8px;
+    color: var(--wpa-muted);
+    word-break: break-all;
+  }
+  
+  /* Stack filters vertically on mobile */
+  .wpa-filters {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .wpa-filters .wpa-field {
+    min-width: 100%;
+  }
+  
+  .wpa-filters input[type="date"],
+  .wpa-filters input[type="search"],
+  .wpa-filters select {
+    max-width: 100%;
+  }
+  
+  /* Stack data management sections on mobile */
+  .wpa-data-management {
+    flex-direction: column;
+  }
+  
+  .wpa-delete-section {
+    min-width: 100%;
+  }
+  
+  /* Analytics overview mobile */
+  .wpa-date-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .wpa-date-controls form {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .wpa-date-controls select {
+    width: 100%;
+  }
+  
+  .wpa-stats-cards {
+    grid-template-columns: 1fr 1fr;
+  }
+  
+  .wpa-stat-card {
+    padding: 16px;
+    gap: 12px;
+  }
+  
+  .wpa-stat-number {
+    font-size: 22px;
+  }
+  
+  .wpa-stat-icon {
+    width: 40px;
+    height: 40px;
+    font-size: 20px;
+  }
+  
+  /* Top pages table scroll */
+  .wpa-top-pages {
+    overflow-x: auto;
+  }
+  
+  .wpa-top-pages .wpa-col-page {
+    min-width: 200px;
+  }
+}
+
+@media screen and (max-width: 480px) {
+  .wpa-stats-cards {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ==========================================================================
+   Settings Page Improvements
+   ========================================================================== */
+
+.wpa-button-row {
+  margin-bottom: 12px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 12px;
+  background: var(--wpa-bg-light);
+  border-radius: var(--wpa-radius);
+}
+
+.wpa-button-row input[type="text"] {
+  max-width: 220px;
+}
+
+.wpa-button-row label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
