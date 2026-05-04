@@ -1398,6 +1398,7 @@ final class WPA_Database {
 	 * @param string $period   'month' or 'year'.
 	 * @param int    $count    Number of periods to return.
 	 * @return array<int, array<string, mixed>>
+	 * @deprecated Use get_daily_trends_for_range() instead.
 	 */
 	public static function get_pageview_trends( string $period = 'month', int $count = 12 ): array {
 		global $wpdb;
@@ -1433,6 +1434,39 @@ final class WPA_Database {
 				ORDER BY period ASC",
 				$date_format,
 				$count
+			),
+			ARRAY_A
+		);
+
+		return is_array( $results ) ? $results : array();
+	}
+
+	/**
+	 * Get daily trends for a specific date range from aggregated stats.
+	 *
+	 * @param string $start_date Start date (YYYY-MM-DD).
+	 * @param string $end_date   End date (YYYY-MM-DD).
+	 * @return array<int, array<string, mixed>>
+	 */
+	public static function get_daily_trends_for_range( string $start_date, string $end_date ): array {
+		global $wpdb;
+		$stats_table = self::stats_table_name();
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$results = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT 
+					stat_date as period,
+					SUM(pageviews) as pageviews,
+					SUM(unique_sessions) as sessions,
+					SUM(link_clicks) as clicks,
+					SUM(conversions) as conversions
+				FROM {$stats_table}
+				WHERE stat_date BETWEEN %s AND %s
+				GROUP BY stat_date
+				ORDER BY stat_date ASC",
+				$start_date,
+				$end_date
 			),
 			ARRAY_A
 		);

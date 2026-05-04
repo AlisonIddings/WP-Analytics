@@ -43,14 +43,14 @@ final class WPA_Analytics {
 
 		// Get date range from query params or default to last 30 days
 		// phpcs:disable WordPress.Security.NonceVerification.Recommended
-		$range     = isset( $_GET['range'] ) ? sanitize_key( $_GET['range'] ) : '30days';
-		$compare   = isset( $_GET['compare'] ) ? sanitize_key( $_GET['compare'] ) : 'month';
+		$range = isset( $_GET['range'] ) ? sanitize_key( $_GET['range'] ) : '30days';
 		// phpcs:enable
 
 		// Calculate date ranges
 		$ranges     = self::get_date_ranges( $range );
 		$end_date   = $ranges['end'];
 		$start_date = $ranges['start'];
+		$days       = self::get_days_for_range( $range );
 
 		// Check if we have aggregated stats or need to use real-time data
 		$has_aggregated = WPA_Database::has_aggregated_stats();
@@ -60,16 +60,13 @@ final class WPA_Analytics {
 			// Use aggregated stats (efficient)
 			$summary   = WPA_Database::get_summary_stats( $start_date, $end_date );
 			$top_pages = WPA_Database::get_top_pages( $start_date, $end_date, 15 );
-			$trends    = WPA_Database::get_pageview_trends( $compare, $compare === 'year' ? 5 : 12 );
+			$trends    = WPA_Database::get_daily_trends_for_range( $start_date, $end_date );
 		} else {
 			// Fall back to real-time data from events table
 			$using_realtime = true;
 			$summary        = WPA_Database::get_realtime_summary_stats( $start_date, $end_date );
 			$top_pages      = WPA_Database::get_realtime_top_pages( $start_date, $end_date, 15 );
-
-			// For trends, use daily data from events
-			$days = self::get_days_for_range( $range );
-			$trends = WPA_Database::get_realtime_daily_trends( $days );
+			$trends         = WPA_Database::get_realtime_daily_trends( $days );
 		}
 
 		// Prepare chart data
@@ -114,24 +111,17 @@ final class WPA_Analytics {
 			<!-- Date Range Selector -->
 			<div class="wpa-date-controls">
 				<form method="get" action="">
-					<input type="hidden" name="page" value="wp-analytics-overview" />
+					<input type="hidden" name="page" value="wp-analytics" />
 					
 					<label for="wpa-range"><?php echo esc_html__( 'Date Range:', 'wp-analytics' ); ?></label>
-					<select name="range" id="wpa-range">
+					<select name="range" id="wpa-range" onchange="this.form.submit()">
 						<option value="7days" <?php selected( $range, '7days' ); ?>><?php echo esc_html__( 'Last 7 Days', 'wp-analytics' ); ?></option>
 						<option value="30days" <?php selected( $range, '30days' ); ?>><?php echo esc_html__( 'Last 30 Days', 'wp-analytics' ); ?></option>
 						<option value="90days" <?php selected( $range, '90days' ); ?>><?php echo esc_html__( 'Last 90 Days', 'wp-analytics' ); ?></option>
 						<option value="year" <?php selected( $range, 'year' ); ?>><?php echo esc_html__( 'Last 12 Months', 'wp-analytics' ); ?></option>
 						<option value="all" <?php selected( $range, 'all' ); ?>><?php echo esc_html__( 'All Time', 'wp-analytics' ); ?></option>
 					</select>
-
-					<label for="wpa-compare"><?php echo esc_html__( 'Chart View:', 'wp-analytics' ); ?></label>
-					<select name="compare" id="wpa-compare">
-						<option value="month" <?php selected( $compare, 'month' ); ?>><?php echo esc_html__( 'Month over Month', 'wp-analytics' ); ?></option>
-						<option value="year" <?php selected( $compare, 'year' ); ?>><?php echo esc_html__( 'Year over Year', 'wp-analytics' ); ?></option>
-					</select>
-
-					<button type="submit" class="button"><?php echo esc_html__( 'Apply', 'wp-analytics' ); ?></button>
+					<noscript><button type="submit" class="button"><?php echo esc_html__( 'Apply', 'wp-analytics' ); ?></button></noscript>
 				</form>
 			</div>
 
