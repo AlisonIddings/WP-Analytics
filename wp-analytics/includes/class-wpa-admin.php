@@ -107,6 +107,16 @@ final class WPA_Admin {
 			array( __CLASS__, 'render_settings_page' )
 		);
 
+		// Conversions submenu
+		add_submenu_page(
+			self::MENU_SLUG,
+			__( 'Conversions', 'wp-analytics' ),
+			__( 'Conversions', 'wp-analytics' ),
+			wpa_view_analytics_capability(),
+			self::MENU_SLUG . '-conversions',
+			array( __CLASS__, 'render_conversions_page' )
+		);
+
 		// User Sessions submenu
 		add_submenu_page(
 			self::MENU_SLUG,
@@ -156,6 +166,16 @@ final class WPA_Admin {
 	public static function render_page_details(): void {
 		self::load_page_details_class();
 		WPA_Page_Details::render_page();
+	}
+
+	/**
+	 * Render the conversions page.
+	 *
+	 * @return void
+	 */
+	public static function render_conversions_page(): void {
+		self::load_conversions_class();
+		WPA_Conversions::render_page();
 	}
 
 	/**
@@ -210,6 +230,17 @@ final class WPA_Admin {
 	private static function load_page_details_class(): void {
 		if ( ! class_exists( 'WPA_Page_Details' ) ) {
 			require_once WPA_PLUGIN_DIR . 'includes/class-wpa-page-details.php';
+		}
+	}
+
+	/**
+	 * Load the conversions class on demand.
+	 *
+	 * @return void
+	 */
+	private static function load_conversions_class(): void {
+		if ( ! class_exists( 'WPA_Conversions' ) ) {
+			require_once WPA_PLUGIN_DIR . 'includes/class-wpa-conversions.php';
 		}
 	}
 
@@ -618,7 +649,6 @@ final class WPA_Admin {
 		$excluded_ips        = WPA_Database::get_excluded_ips_raw();
 		$anonymize_ip        = WPA_Database::is_ip_anonymization_enabled();
 		$retention_days      = WPA_Database::get_data_retention_days();
-		$conversion_buttons  = WPA_Database::get_conversion_buttons();
 
 		// Get the current user's IP for display
 		$current_ip = self::get_current_user_ip();
@@ -712,83 +742,17 @@ final class WPA_Admin {
 
 				<!-- Conversion Tracking Section -->
 				<h2><?php echo esc_html__( 'Conversion Tracking', 'wp-analytics' ); ?></h2>
-				<p class="description">
-					<?php echo esc_html__( 'Track button clicks as conversions by specifying their HTML element IDs.', 'wp-analytics' ); ?>
-				</p>
 
 				<table class="form-table" role="presentation">
 					<tr>
-						<th scope="row"><?php echo esc_html__( 'Tracked Buttons', 'wp-analytics' ); ?></th>
+						<th scope="row"><?php echo esc_html__( 'Conversion Goals', 'wp-analytics' ); ?></th>
 						<td>
-							<div id="wpa-conversion-buttons">
-								<?php if ( empty( $conversion_buttons ) ) : ?>
-									<div class="wpa-button-row" data-index="0">
-										<input type="text" name="conversion_buttons[0][id]" placeholder="<?php echo esc_attr__( 'Button ID (e.g., buy-now-btn)', 'wp-analytics' ); ?>" class="regular-text" />
-										<input type="text" name="conversion_buttons[0][name]" placeholder="<?php echo esc_attr__( 'Friendly Name (e.g., Buy Now)', 'wp-analytics' ); ?>" class="regular-text" />
-										<label>
-											<input type="checkbox" name="conversion_buttons[0][enabled]" value="1" checked />
-											<?php echo esc_html__( 'Enabled', 'wp-analytics' ); ?>
-										</label>
-										<button type="button" class="button wpa-remove-button"><?php echo esc_html__( 'Remove', 'wp-analytics' ); ?></button>
-									</div>
-								<?php else : ?>
-									<?php foreach ( $conversion_buttons as $index => $button ) : ?>
-										<div class="wpa-button-row" data-index="<?php echo esc_attr( $index ); ?>">
-											<input type="text" name="conversion_buttons[<?php echo esc_attr( $index ); ?>][id]" value="<?php echo esc_attr( $button['id'] ); ?>" placeholder="<?php echo esc_attr__( 'Button ID', 'wp-analytics' ); ?>" class="regular-text" />
-											<input type="text" name="conversion_buttons[<?php echo esc_attr( $index ); ?>][name]" value="<?php echo esc_attr( $button['name'] ); ?>" placeholder="<?php echo esc_attr__( 'Friendly Name', 'wp-analytics' ); ?>" class="regular-text" />
-											<label>
-												<input type="checkbox" name="conversion_buttons[<?php echo esc_attr( $index ); ?>][enabled]" value="1" <?php checked( $button['enabled'] ); ?> />
-												<?php echo esc_html__( 'Enabled', 'wp-analytics' ); ?>
-											</label>
-											<button type="button" class="button wpa-remove-button"><?php echo esc_html__( 'Remove', 'wp-analytics' ); ?></button>
-										</div>
-									<?php endforeach; ?>
-								<?php endif; ?>
-							</div>
+							<p><?php echo esc_html__( 'Configure conversion tracking for button clicks (by ID or class) and thank you page URL visits.', 'wp-analytics' ); ?></p>
 							<p>
-								<button type="button" class="button" id="wpa-add-button"><?php echo esc_html__( 'Add Button', 'wp-analytics' ); ?></button>
+								<a href="<?php echo esc_url( admin_url( 'admin.php?page=wp-analytics-conversions' ) ); ?>" class="button button-primary">
+									<?php echo esc_html__( 'Manage Conversion Goals', 'wp-analytics' ); ?>
+								</a>
 							</p>
-							<p class="description">
-								<?php echo esc_html__( 'Enter the HTML ID attribute of buttons you want to track (without the # symbol).', 'wp-analytics' ); ?><br />
-								<?php
-								printf(
-									/* translators: %1$s: opening code tag, %2$s: closing code tag */
-									esc_html__( 'Example: If your button is %1$s<button id="purchase-btn">%2$s, enter %1$spurchase-btn%2$s', 'wp-analytics' ),
-									'<code>',
-									'</code>'
-								);
-								?>
-							</p>
-
-							<script>
-							(function() {
-								var container = document.getElementById('wpa-conversion-buttons');
-								var addBtn = document.getElementById('wpa-add-button');
-								var index = <?php echo count( $conversion_buttons ) > 0 ? count( $conversion_buttons ) : 1; ?>;
-
-								addBtn.addEventListener('click', function() {
-									var row = document.createElement('div');
-									row.className = 'wpa-button-row';
-									row.dataset.index = index;
-									row.innerHTML = '<input type="text" name="conversion_buttons[' + index + '][id]" placeholder="<?php echo esc_js( __( 'Button ID', 'wp-analytics' ) ); ?>" class="regular-text" /> ' +
-										'<input type="text" name="conversion_buttons[' + index + '][name]" placeholder="<?php echo esc_js( __( 'Friendly Name', 'wp-analytics' ) ); ?>" class="regular-text" /> ' +
-										'<label><input type="checkbox" name="conversion_buttons[' + index + '][enabled]" value="1" checked /> <?php echo esc_js( __( 'Enabled', 'wp-analytics' ) ); ?></label> ' +
-										'<button type="button" class="button wpa-remove-button"><?php echo esc_js( __( 'Remove', 'wp-analytics' ) ); ?></button>';
-									container.appendChild(row);
-									index++;
-								});
-
-								container.addEventListener('click', function(e) {
-									if (e.target.classList.contains('wpa-remove-button')) {
-										e.target.closest('.wpa-button-row').remove();
-									}
-								});
-							})();
-							</script>
-							<style>
-								.wpa-button-row { margin-bottom: 10px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-								.wpa-button-row input[type="text"] { max-width: 250px; }
-							</style>
 						</td>
 					</tr>
 				</table>
@@ -913,21 +877,6 @@ final class WPA_Admin {
 		// Save included URLs
 		$included_urls = isset( $_POST['included_urls'] ) ? sanitize_textarea_field( wp_unslash( $_POST['included_urls'] ) ) : '';
 		WPA_Database::set_included_urls( $included_urls );
-
-		// Save conversion buttons
-		$conversion_buttons = array();
-		if ( isset( $_POST['conversion_buttons'] ) && is_array( $_POST['conversion_buttons'] ) ) {
-			foreach ( $_POST['conversion_buttons'] as $button ) { // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
-				if ( is_array( $button ) && ! empty( $button['id'] ) ) {
-					$conversion_buttons[] = array(
-						'id'      => sanitize_html_class( $button['id'] ),
-						'name'    => sanitize_text_field( $button['name'] ?? '' ),
-						'enabled' => ! empty( $button['enabled'] ),
-					);
-				}
-			}
-		}
-		WPA_Database::set_conversion_buttons( $conversion_buttons );
 
 		// Save excluded IPs
 		$excluded_ips = isset( $_POST['excluded_ips'] ) ? sanitize_textarea_field( wp_unslash( $_POST['excluded_ips'] ) ) : '';

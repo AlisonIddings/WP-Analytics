@@ -8,7 +8,7 @@
  * - Lightweight and privacy-focused
  * - No cookies - uses localStorage for session tracking
  * - Respects URL exclusion/inclusion patterns
- * - Tracks configurable conversion buttons
+ * - Tracks conversions via button IDs, classes, and thank you page URLs
  *
  * @package WP_Analytics
  * @since 1.0.0
@@ -64,7 +64,7 @@
    *
    * @param {string} url - The URL to check
    * @param {string[]} patterns - Array of patterns
-   * @returns {boolean} True if URL matches any pattern
+   * @returns {string|boolean} The matched pattern or false
    */
   function urlMatchesAnyPattern(url, patterns) {
     if (!patterns || !patterns.length) {
@@ -72,7 +72,7 @@
     }
     for (var i = 0; i < patterns.length; i++) {
       if (urlMatchesPattern(url, patterns[i])) {
-        return true;
+        return patterns[i];
       }
     }
     return false;
@@ -93,7 +93,7 @@
       if (!included.length) {
         return false; // No patterns = track nothing
       }
-      return urlMatchesAnyPattern(url, included);
+      return !!urlMatchesAnyPattern(url, included);
     }
 
     // Default mode: track all except excluded URLs
@@ -170,6 +170,7 @@
   var sentFinal = false;
   var pendingClicks = [];
   var pageHidden = false;
+  var urlConversionSent = false;
 
   // Safety limits to prevent memory issues
   var MAX_PENDING_CLICKS = 20;
@@ -335,6 +336,9 @@
             pendingClicks = [];
           }
 
+          // Check for URL-based conversion (thank you page)
+          checkUrlConversion();
+
           // Send engagement if page was hidden before pageview completed
           if (pageHidden) {
             sendEngagementFinal();
@@ -467,43 +471,106 @@
   );
 
   // ==========================================================================
-  // CONVERSION TRACKING
+  // CONVERSION TRACKING - URL-BASED (Thank You Pages)
   // ==========================================================================
 
-  var conversionButtons = settings.conversionButtons || [];
+  var conversionUrls = settings.conversionUrls || [];
+
+  /**
+   * Check if current page URL matches a conversion URL pattern.
+   */
+  function checkUrlConversion() {
+    if (urlConversionSent || !conversionUrls.length) {
+      return;
+    }
+
+    if (!pageviewId || !sessionId) {
+      return;
+    }
+
+    // Check if current URL matches any conversion URL pattern
+    var matchedPattern = urlMatchesAnyPattern(pageUrl, conversionUrls);
+    if (!matchedPattern) {
+      matchedPattern = urlMatchesAnyPattern(pathname, conversionUrls);
+    }
+
+    if (matchedPattern) {
+      urlConversionSent = true;
+
+      // Send conversion event with URL type indicator
+      postJson(
+        "/conversion",
+        {
+          token: settings.token,
+          pageview_id: pageviewId,
+          conversion_type: "url",
+          conversion_value: matchedPattern,
+          page_url: pageUrl,
+          session: sessionId,
+        },
+        false
+      );
+    }
+  }
+
+  // ==========================================================================
+  // CONVERSION TRACKING - BUTTON CLICKS (IDs and Classes)
+  // ==========================================================================
+
+  var conversionButtonIds = settings.conversionButtonIds || [];
+  var conversionButtonClasses = settings.conversionButtonClasses || [];
   var trackedConversions = {};
   var trackedConversionCount = 0;
 
-  if (conversionButtons.length > 0) {
+  // Only set up button tracking if there are buttons to track
+  if (conversionButtonIds.length > 0 || conversionButtonClasses.length > 0) {
     document.addEventListener(
       "click",
       function (e) {
         var target = e.target;
 
-        // Walk up DOM tree to find element with tracked ID
+        // Walk up DOM tree to find element with tracked ID or class
         var element = target;
-        var buttonId = null;
+        var matchedSelector = null;
+        var matchType = null;
 
         while (element && element !== document.body) {
-          if (element.id && conversionButtons.indexOf(element.id) !== -1) {
-            buttonId = element.id;
+          // Check for matching ID
+          if (element.id && conversionButtonIds.indexOf(element.id) !== -1) {
+            matchedSelector = element.id;
+            matchType = "id";
             break;
           }
+
+          // Check for matching class
+          if (element.classList && conversionButtonClasses.length > 0) {
+            for (var i = 0; i < conversionButtonClasses.length; i++) {
+              if (element.classList.contains(conversionButtonClasses[i])) {
+                matchedSelector = conversionButtonClasses[i];
+                matchType = "class";
+                break;
+              }
+            }
+            if (matchedSelector) {
+              break;
+            }
+          }
+
           element = element.parentNode;
         }
 
         // No tracked button found
-        if (!buttonId) {
+        if (!matchedSelector) {
           return;
         }
 
-        // Validate button ID length (security check)
-        if (buttonId.length > 100) {
+        // Validate selector length (security check)
+        if (matchedSelector.length > 100) {
           return;
         }
 
         // Prevent duplicate tracking for same button in same pageview
-        var trackKey = pageviewId + "_" + buttonId;
+        var trackKey = pageviewId + "_" + matchType + "_" + matchedSelector;
         if (trackedConversions[trackKey]) {
           return;
         }
@@ -527,7 +594,8 @@
           {
             token: settings.token,
             pageview_id: pageviewId,
-            button_id: buttonId,
+            conversion_type: matchType,
+            conversion_value: matchedSelector,
             page_url: pageUrl,
             session: sessionId,
           },

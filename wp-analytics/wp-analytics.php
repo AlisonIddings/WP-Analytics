@@ -3,7 +3,7 @@
  * Plugin Name: WP Analytics
  * Plugin URI: https://alisoniddings.com/wp-analytics
  * Description: Privacy-focused analytics for WordPress. Track pageviews, engagement, link clicks, and conversions without external services. GDPR-friendly with IP anonymization.
- * Version: 1.2.1
+ * Version: 1.3.0
  * Requires at least: 6.0
  * Requires PHP: 7.4
  * Author: Alison Iddings
@@ -31,7 +31,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * and URLs. They should not be modified during runtime.
  */
 
-define( 'WPA_PLUGIN_VERSION', '1.2.1' );
+define( 'WPA_PLUGIN_VERSION', '1.3.0' );
 define( 'WPA_PLUGIN_FILE', __FILE__ );
 define( 'WPA_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WPA_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -286,10 +286,19 @@ add_action(
 			$settings['excludedUrls'] = WPA_Database::get_excluded_urls();
 		}
 
-		// Add conversion button IDs if any are configured
-		$conversion_buttons = WPA_Database::get_enabled_conversion_button_ids();
-		if ( ! empty( $conversion_buttons ) ) {
-			$settings['conversionButtons'] = $conversion_buttons;
+		// Add conversion button selectors (IDs and classes)
+		$conversion_selectors = WPA_Database::get_enabled_conversion_selectors();
+		if ( ! empty( $conversion_selectors['ids'] ) ) {
+			$settings['conversionButtonIds'] = $conversion_selectors['ids'];
+		}
+		if ( ! empty( $conversion_selectors['classes'] ) ) {
+			$settings['conversionButtonClasses'] = $conversion_selectors['classes'];
+		}
+
+		// Add conversion URLs (thank you pages)
+		$conversion_urls = WPA_Database::get_enabled_conversion_urls();
+		if ( ! empty( $conversion_urls ) ) {
+			$settings['conversionUrls'] = $conversion_urls;
 		}
 
 		// Inject settings as inline script before the tracker loads
