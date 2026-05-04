@@ -448,8 +448,9 @@ final class WPA_REST_API {
 	/**
 	 * Handle conversion tracking.
 	 *
-	 * Records when a user clicks a tracked conversion button.
-	 * Only accepts button IDs that are configured in settings.
+	 * Records conversions from:
+	 * - Button clicks (by ID or class)
+	 * - Thank you page URL visits
 	 *
 	 * @param WP_REST_Request $request The incoming request.
 	 * @return WP_REST_Response|WP_Error Response or error.
@@ -466,21 +467,29 @@ final class WPA_REST_API {
 		// Validate pageview ID
 		$pageview_id = absint( $request->get_param( 'pageview_id' ) );
 
-		// Validate button ID with length limit
-		$raw_button_id = (string) $request->get_param( 'button_id' );
-		if ( strlen( $raw_button_id ) > 100 ) {
+		// Get conversion type and value
+		$conversion_type  = sanitize_key( (string) $request->get_param( 'conversion_type' ) );
+		$conversion_value = (string) $request->get_param( 'conversion_value' );
+
+		// Support legacy button_id parameter
+		if ( $conversion_type === '' && $request->get_param( 'button_id' ) !== null ) {
+			$conversion_type  = 'id';
+			$conversion_value = (string) $request->get_param( 'button_id' );
+		}
+
+		// Validate conversion value length
+		if ( strlen( $conversion_value ) > 500 ) {
 			return new WP_Error(
-				'wpa_invalid_button',
-				__( 'Button ID too long.', 'wp-analytics' ),
+				'wpa_invalid_conversion',
+				__( 'Conversion value too long.', 'wp-analytics' ),
 				array( 'status' => 400 )
 			);
 		}
 
-		$button_id = sanitize_html_class( $raw_button_id );
-		$page_url  = self::validate_url( (string) $request->get_param( 'page_url' ) );
-		$session   = self::validate_session_id( (string) $request->get_param( 'session' ) );
+		$page_url = self::validate_url( (string) $request->get_param( 'page_url' ) );
+		$session  = self::validate_session_id( (string) $request->get_param( 'session' ) );
 
-		if ( $pageview_id <= 0 || $button_id === '' || $page_url === '' || $session === '' ) {
+		if ( $pageview_id <= 0 || $conversion_value === '' || $page_url === '' || $session === '' ) {
 			return new WP_Error(
 				'wpa_invalid_params',
 				__( 'Invalid parameters.', 'wp-analytics' ),
@@ -488,12 +497,58 @@ final class WPA_REST_API {
 			);
 		}
 
-		// Security: Verify this button is configured for tracking
-		$enabled_buttons = WPA_Database::get_enabled_conversion_button_ids();
-		if ( ! in_array( $button_id, $enabled_buttons, true ) ) {
+		// Validate conversion type is allowed
+		$allowed_types = array( 'id', 'class', 'url' );
+		if ( ! in_array( $conversion_type, $allowed_types, true ) ) {
 			return new WP_Error(
-				'wpa_invalid_button',
-				__( 'Button not configured for tracking.', 'wp-analytics' ),
+				'wpa_invalid_conversion_type',
+				__( 'Invalid conversion type.', 'wp-analytics' ),
+				array( 'status' => 400 )
+			);
+		}
+
+		// Sanitize based on type
+		if ( $conversion_type === 'url' ) {
+			$conversion_value = sanitize_text_field( $conversion_value );
+		} else {
+			$conversion_value = sanitize_html_class( $conversion_value );
+		}
+
+		if ( $conversion_value === '' ) {
+			return new WP_Error(
+				'wpa_invalid_conversion',
+				__( 'Invalid conversion value.', 'wp-analytics' ),
+				array( 'status' => 400 )
+			);
+		}
+
+		// Verify conversion is configured for tracking
+		$is_valid_conversion = false;
+		$conversion_name     = $conversion_value;
+
+		if ( $conversion_type === 'url' ) {
+			// Check if URL matches any configured conversion URL
+			$url_name = WPA_Database::check_conversion_url( $conversion_value );
+			if ( $url_name !== false ) {
+				$is_valid_conversion = true;
+				$conversion_name     = $url_name;
+			}
+		} else {
+			// Check button IDs or classes
+			$selectors = WPA_Database::get_enabled_conversion_selectors();
+			if ( $conversion_type === 'id' && in_array( $conversion_value, $selectors['ids'], true ) ) {
+				$is_valid_conversion = true;
+				$conversion_name     = WPA_Database::get_conversion_button_name( $conversion_value );
+			} elseif ( $conversion_type === 'class' && in_array( $conversion_value, $selectors['classes'], true ) ) {
+				$is_valid_conversion = true;
+				$conversion_name     = WPA_Database::get_conversion_button_name( $conversion_value );
+			}
+		}
+
+		if ( ! $is_valid_conversion ) {
+			return new WP_Error(
+				'wpa_invalid_conversion',
+				__( 'Conversion not configured for tracking.', 'wp-analytics' ),
 				array( 'status' => 400 )
 			);
 		}
@@ -520,10 +575,9 @@ final class WPA_REST_API {
 		$ip = self::get_client_ip();
 		$ua = self::sanitize_user_agent();
 
-		// Get the friendly name for the button
-		$button_name = WPA_Database::get_conversion_button_name( $button_id );
+		// Insert conversion record (format: type|value|name)
+		$link_url_value = $conversion_type . '|' . $conversion_value . '|' . $conversion_name;
 
-		// Insert conversion record (button info stored in link_url field as "id|name")
 		$sql  = "INSERT INTO {$table}
 			(event_type, pageview_id, session_id, page_url, link_url, ip_address, user_agent, time_on_page, scroll_depth, created_at)
 			VALUES (%s, %d, %s, %s, %s, %s, %s, NULL, NULL, %s)";
@@ -532,7 +586,7 @@ final class WPA_REST_API {
 			$pageview_id,
 			$session,
 			$page_url,
-			$button_id . '|' . $button_name,
+			$link_url_value,
 			$ip,
 			$ua,
 			gmdate( 'Y-m-d H:i:s' ),
@@ -551,8 +605,9 @@ final class WPA_REST_API {
 
 		return new WP_REST_Response(
 			array(
-				'ok'     => true,
-				'button' => $button_name,
+				'ok'   => true,
+				'type' => $conversion_type,
+				'name' => $conversion_name,
 			),
 			200
 		);

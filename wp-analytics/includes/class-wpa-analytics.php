@@ -185,21 +185,21 @@ final class WPA_Analytics {
 						<?php echo esc_html__( 'No page data available yet. Visit some pages on your site to start collecting data.', 'wp-analytics' ); ?>
 					</p>
 				<?php else : ?>
-					<table class="wp-list-table widefat fixed striped">
+					<table class="wp-list-table widefat fixed striped wpa-sortable-table" id="wpa-top-pages-table">
 						<thead>
 							<tr>
-								<th class="wpa-col-page"><?php echo esc_html__( 'Page', 'wp-analytics' ); ?></th>
-								<th class="wpa-col-num"><?php echo esc_html__( 'Pageviews', 'wp-analytics' ); ?></th>
-								<th class="wpa-col-num"><?php echo esc_html__( 'Sessions', 'wp-analytics' ); ?></th>
-								<th class="wpa-col-num"><?php echo esc_html__( 'Avg. Time', 'wp-analytics' ); ?></th>
-								<th class="wpa-col-num"><?php echo esc_html__( 'Scroll %', 'wp-analytics' ); ?></th>
-								<th class="wpa-col-num"><?php echo esc_html__( 'Conversions', 'wp-analytics' ); ?></th>
+								<th class="wpa-col-page wpa-sortable" data-sort="string"><?php echo esc_html__( 'Page', 'wp-analytics' ); ?> <span class="wpa-sort-icon"></span></th>
+								<th class="wpa-col-num wpa-sortable wpa-sorted-desc" data-sort="number"><?php echo esc_html__( 'Pageviews', 'wp-analytics' ); ?> <span class="wpa-sort-icon">▼</span></th>
+								<th class="wpa-col-num wpa-sortable" data-sort="number"><?php echo esc_html__( 'Sessions', 'wp-analytics' ); ?> <span class="wpa-sort-icon"></span></th>
+								<th class="wpa-col-num wpa-sortable" data-sort="number"><?php echo esc_html__( 'Avg. Time', 'wp-analytics' ); ?> <span class="wpa-sort-icon"></span></th>
+								<th class="wpa-col-num wpa-sortable" data-sort="number"><?php echo esc_html__( 'Scroll %', 'wp-analytics' ); ?> <span class="wpa-sort-icon"></span></th>
+								<th class="wpa-col-num wpa-sortable" data-sort="number"><?php echo esc_html__( 'Conversions', 'wp-analytics' ); ?> <span class="wpa-sort-icon"></span></th>
 							</tr>
 						</thead>
 						<tbody>
 							<?php foreach ( $top_pages as $page ) : ?>
 								<tr>
-									<td class="wpa-col-page">
+									<td class="wpa-col-page" data-value="<?php echo esc_attr( $page['page_path'] ); ?>">
 										<a href="<?php echo esc_url( admin_url( 'admin.php?page=wp-analytics-page&path=' . urlencode( $page['page_path'] ) ) ); ?>" title="<?php echo esc_attr( __( 'View page analytics', 'wp-analytics' ) ); ?>">
 											<?php echo esc_html( self::truncate_path( $page['page_path'], 60 ) ); ?>
 										</a>
@@ -207,15 +207,76 @@ final class WPA_Analytics {
 											<span class="dashicons dashicons-external" style="font-size: 14px; vertical-align: middle;"></span>
 										</a>
 									</td>
-									<td class="wpa-col-num"><?php echo esc_html( number_format_i18n( (int) $page['total_pageviews'] ) ); ?></td>
-									<td class="wpa-col-num"><?php echo esc_html( number_format_i18n( (int) $page['total_sessions'] ) ); ?></td>
-									<td class="wpa-col-num"><?php echo esc_html( self::format_duration( (int) $page['avg_time'] ) ); ?></td>
-									<td class="wpa-col-num"><?php echo esc_html( (int) $page['avg_scroll'] . '%' ); ?></td>
-									<td class="wpa-col-num"><?php echo esc_html( number_format_i18n( (int) $page['total_conversions'] ) ); ?></td>
+									<td class="wpa-col-num" data-value="<?php echo esc_attr( (int) $page['total_pageviews'] ); ?>"><?php echo esc_html( number_format_i18n( (int) $page['total_pageviews'] ) ); ?></td>
+									<td class="wpa-col-num" data-value="<?php echo esc_attr( (int) $page['total_sessions'] ); ?>"><?php echo esc_html( number_format_i18n( (int) $page['total_sessions'] ) ); ?></td>
+									<td class="wpa-col-num" data-value="<?php echo esc_attr( (int) ( $page['avg_time'] ?? 0 ) ); ?>"><?php echo esc_html( self::format_duration( (int) ( $page['avg_time'] ?? 0 ) ) ); ?></td>
+									<td class="wpa-col-num" data-value="<?php echo esc_attr( (int) ( $page['avg_scroll'] ?? 0 ) ); ?>"><?php echo esc_html( (int) ( $page['avg_scroll'] ?? 0 ) . '%' ); ?></td>
+									<td class="wpa-col-num" data-value="<?php echo esc_attr( (int) ( $page['total_conversions'] ?? 0 ) ); ?>"><?php echo esc_html( number_format_i18n( (int) ( $page['total_conversions'] ?? 0 ) ) ); ?></td>
 								</tr>
 							<?php endforeach; ?>
 						</tbody>
 					</table>
+					<script>
+					(function() {
+						var table = document.getElementById('wpa-top-pages-table');
+						if (!table) return;
+
+						var headers = table.querySelectorAll('th.wpa-sortable');
+						headers.forEach(function(header, colIndex) {
+							header.style.cursor = 'pointer';
+							header.addEventListener('click', function() {
+								sortTable(table, colIndex, header);
+							});
+						});
+
+						function sortTable(table, colIndex, header) {
+							var tbody = table.querySelector('tbody');
+							var rows = Array.from(tbody.querySelectorAll('tr'));
+							var isAsc = header.classList.contains('wpa-sorted-asc');
+							var sortType = header.getAttribute('data-sort') || 'string';
+
+							// Remove sort classes from all headers
+							headers.forEach(function(h) {
+								h.classList.remove('wpa-sorted-asc', 'wpa-sorted-desc');
+								h.querySelector('.wpa-sort-icon').textContent = '';
+							});
+
+							// Sort rows
+							rows.sort(function(a, b) {
+								var aCell = a.cells[colIndex];
+								var bCell = b.cells[colIndex];
+								var aVal = aCell.getAttribute('data-value') || aCell.textContent.trim();
+								var bVal = bCell.getAttribute('data-value') || bCell.textContent.trim();
+
+								if (sortType === 'number') {
+									aVal = parseFloat(aVal) || 0;
+									bVal = parseFloat(bVal) || 0;
+								} else {
+									aVal = aVal.toLowerCase();
+									bVal = bVal.toLowerCase();
+								}
+
+								if (aVal < bVal) return isAsc ? 1 : -1;
+								if (aVal > bVal) return isAsc ? -1 : 1;
+								return 0;
+							});
+
+							// Update header
+							if (isAsc) {
+								header.classList.add('wpa-sorted-desc');
+								header.querySelector('.wpa-sort-icon').textContent = '▼';
+							} else {
+								header.classList.add('wpa-sorted-asc');
+								header.querySelector('.wpa-sort-icon').textContent = '▲';
+							}
+
+							// Re-append rows in sorted order
+							rows.forEach(function(row) {
+								tbody.appendChild(row);
+							});
+						}
+					})();
+					</script>
 				<?php endif; ?>
 			</div>
 

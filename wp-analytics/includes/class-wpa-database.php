@@ -68,6 +68,9 @@ final class WPA_Database {
 	/** @var string Option key for conversion button configurations */
 	private const OPTION_CONVERSION_BUTTONS = 'wpa_conversion_buttons';
 
+	/** @var string Option key for conversion URL configurations */
+	private const OPTION_CONVERSION_URLS = 'wpa_conversion_urls';
+
 	/** @var string Option key for excluded IP addresses */
 	private const OPTION_EXCLUDED_IPS = 'wpa_excluded_ips';
 
@@ -155,6 +158,7 @@ final class WPA_Database {
 		delete_option( self::OPTION_EXCLUDED_URLS );
 		delete_option( self::OPTION_INCLUDED_URLS );
 		delete_option( self::OPTION_CONVERSION_BUTTONS );
+		delete_option( self::OPTION_CONVERSION_URLS );
 		delete_option( self::OPTION_EXCLUDED_IPS );
 	}
 
@@ -522,14 +526,15 @@ final class WPA_Database {
 	 */
 
 	/**
-	 * Get all configured conversion buttons.
+	 * Get all configured conversion buttons (IDs and classes).
 	 *
 	 * Each button configuration includes:
-	 * - id: The HTML element ID to track
+	 * - selector: The HTML element ID or class to track (without # or .)
+	 * - type: 'id' or 'class'
 	 * - name: A friendly display name
 	 * - enabled: Whether tracking is active
 	 *
-	 * @return array<int, array{id: string, name: string, enabled: bool}>
+	 * @return array<int, array{selector: string, type: string, name: string, enabled: bool}>
 	 */
 	public static function get_conversion_buttons(): array {
 		if ( isset( self::$cache['conversion_buttons'] ) ) {
@@ -541,27 +546,39 @@ final class WPA_Database {
 			$buttons = array();
 		}
 
-		$max_id_length   = 100;
-		$max_name_length = 100;
+		$max_selector_length = 100;
+		$max_name_length     = 100;
 
 		// Validate and sanitize each button configuration
 		$valid_buttons = array();
 		foreach ( $buttons as $button ) {
-			if ( is_array( $button ) && ! empty( $button['id'] ) ) {
-				$raw_id = substr( (string) $button['id'], 0, $max_id_length );
-				$id     = sanitize_html_class( $raw_id );
-
-				if ( $id !== '' ) {
-					$raw_name = substr( (string) ( $button['name'] ?? $id ), 0, $max_name_length );
-					$name     = sanitize_text_field( $raw_name );
-
-					$valid_buttons[] = array(
-						'id'      => $id,
-						'name'    => $name !== '' ? $name : $id,
-						'enabled' => ! empty( $button['enabled'] ),
-					);
-				}
+			if ( ! is_array( $button ) ) {
+				continue;
 			}
+
+			// Support legacy 'id' field or new 'selector' field
+			$raw_selector = $button['selector'] ?? $button['id'] ?? '';
+			if ( $raw_selector === '' ) {
+				continue;
+			}
+
+			$raw_selector = substr( (string) $raw_selector, 0, $max_selector_length );
+			$selector     = sanitize_html_class( $raw_selector );
+
+			if ( $selector === '' ) {
+				continue;
+			}
+
+			$type     = isset( $button['type'] ) && $button['type'] === 'class' ? 'class' : 'id';
+			$raw_name = substr( (string) ( $button['name'] ?? $selector ), 0, $max_name_length );
+			$name     = sanitize_text_field( $raw_name );
+
+			$valid_buttons[] = array(
+				'selector' => $selector,
+				'type'     => $type,
+				'name'     => $name !== '' ? $name : $selector,
+				'enabled'  => ! empty( $button['enabled'] ),
+			);
 		}
 
 		self::$cache['conversion_buttons'] = $valid_buttons;
@@ -569,21 +586,39 @@ final class WPA_Database {
 	}
 
 	/**
-	 * Get IDs of enabled conversion buttons only.
+	 * Get enabled conversion buttons grouped by type.
+	 *
+	 * @return array{ids: string[], classes: string[]}
+	 */
+	public static function get_enabled_conversion_selectors(): array {
+		$buttons = self::get_conversion_buttons();
+		$ids     = array();
+		$classes = array();
+
+		foreach ( $buttons as $button ) {
+			if ( $button['enabled'] ) {
+				if ( $button['type'] === 'class' ) {
+					$classes[] = $button['selector'];
+				} else {
+					$ids[] = $button['selector'];
+				}
+			}
+		}
+
+		return array(
+			'ids'     => $ids,
+			'classes' => $classes,
+		);
+	}
+
+	/**
+	 * Get IDs of enabled conversion buttons only (legacy support).
 	 *
 	 * @return string[] Array of button element IDs
 	 */
 	public static function get_enabled_conversion_button_ids(): array {
-		$buttons = self::get_conversion_buttons();
-		$ids     = array();
-
-		foreach ( $buttons as $button ) {
-			if ( $button['enabled'] ) {
-				$ids[] = $button['id'];
-			}
-		}
-
-		return $ids;
+		$selectors = self::get_enabled_conversion_selectors();
+		return $selectors['ids'];
 	}
 
 	/**
@@ -591,14 +626,14 @@ final class WPA_Database {
 	 *
 	 * Limited to 50 buttons maximum to prevent abuse.
 	 *
-	 * @param array<int, array{id: string, name: string, enabled: bool}> $buttons Button configurations.
+	 * @param array<int, array{selector: string, type: string, name: string, enabled: bool}> $buttons Button configurations.
 	 * @return void
 	 */
 	public static function set_conversion_buttons( array $buttons ): void {
-		$valid_buttons   = array();
-		$max_buttons     = 50;
-		$max_id_length   = 100;
-		$max_name_length = 100;
+		$valid_buttons       = array();
+		$max_buttons         = 50;
+		$max_selector_length = 100;
+		$max_name_length     = 100;
 
 		foreach ( $buttons as $button ) {
 			// Stop if we've reached the limit
@@ -606,21 +641,33 @@ final class WPA_Database {
 				break;
 			}
 
-			if ( is_array( $button ) && ! empty( $button['id'] ) ) {
-				$raw_id = substr( (string) $button['id'], 0, $max_id_length );
-				$id     = sanitize_html_class( $raw_id );
-
-				if ( $id !== '' ) {
-					$raw_name = substr( (string) ( $button['name'] ?? $id ), 0, $max_name_length );
-					$name     = sanitize_text_field( $raw_name );
-
-					$valid_buttons[] = array(
-						'id'      => $id,
-						'name'    => $name !== '' ? $name : $id,
-						'enabled' => ! empty( $button['enabled'] ),
-					);
-				}
+			if ( ! is_array( $button ) ) {
+				continue;
 			}
+
+			// Support legacy 'id' field or new 'selector' field
+			$raw_selector = $button['selector'] ?? $button['id'] ?? '';
+			if ( $raw_selector === '' ) {
+				continue;
+			}
+
+			$raw_selector = substr( (string) $raw_selector, 0, $max_selector_length );
+			$selector     = sanitize_html_class( $raw_selector );
+
+			if ( $selector === '' ) {
+				continue;
+			}
+
+			$type     = isset( $button['type'] ) && $button['type'] === 'class' ? 'class' : 'id';
+			$raw_name = substr( (string) ( $button['name'] ?? $selector ), 0, $max_name_length );
+			$name     = sanitize_text_field( $raw_name );
+
+			$valid_buttons[] = array(
+				'selector' => $selector,
+				'type'     => $type,
+				'name'     => $name !== '' ? $name : $selector,
+				'enabled'  => ! empty( $button['enabled'] ),
+			);
 		}
 
 		update_option( self::OPTION_CONVERSION_BUTTONS, $valid_buttons, true );
@@ -628,21 +675,249 @@ final class WPA_Database {
 	}
 
 	/**
-	 * Get the friendly name for a conversion button by its ID.
+	 * Get the friendly name for a conversion button by its selector.
 	 *
-	 * @param string $button_id The button element ID.
-	 * @return string The friendly name, or the ID if not found.
+	 * @param string $selector The button selector (ID or class).
+	 * @return string The friendly name, or the selector if not found.
 	 */
-	public static function get_conversion_button_name( string $button_id ): string {
+	public static function get_conversion_button_name( string $selector ): string {
 		$buttons = self::get_conversion_buttons();
 
 		foreach ( $buttons as $button ) {
-			if ( $button['id'] === $button_id ) {
+			if ( $button['selector'] === $selector ) {
 				return $button['name'];
 			}
 		}
 
-		return $button_id;
+		return $selector;
+	}
+
+	/**
+	 * Get all configured conversion URLs (thank you pages).
+	 *
+	 * @return array<int, array{url: string, name: string, enabled: bool}>
+	 */
+	public static function get_conversion_urls(): array {
+		if ( isset( self::$cache['conversion_urls'] ) ) {
+			return self::$cache['conversion_urls'];
+		}
+
+		$urls = get_option( self::OPTION_CONVERSION_URLS, array() );
+		if ( ! is_array( $urls ) ) {
+			$urls = array();
+		}
+
+		$max_url_length  = 500;
+		$max_name_length = 100;
+
+		$valid_urls = array();
+		foreach ( $urls as $url_config ) {
+			if ( ! is_array( $url_config ) || empty( $url_config['url'] ) ) {
+				continue;
+			}
+
+			$raw_url = substr( (string) $url_config['url'], 0, $max_url_length );
+			$url     = sanitize_text_field( $raw_url );
+
+			if ( $url === '' ) {
+				continue;
+			}
+
+			$raw_name = substr( (string) ( $url_config['name'] ?? $url ), 0, $max_name_length );
+			$name     = sanitize_text_field( $raw_name );
+
+			$valid_urls[] = array(
+				'url'     => $url,
+				'name'    => $name !== '' ? $name : $url,
+				'enabled' => ! empty( $url_config['enabled'] ),
+			);
+		}
+
+		self::$cache['conversion_urls'] = $valid_urls;
+		return $valid_urls;
+	}
+
+	/**
+	 * Get enabled conversion URLs only.
+	 *
+	 * @return string[] Array of URL patterns
+	 */
+	public static function get_enabled_conversion_urls(): array {
+		$urls    = self::get_conversion_urls();
+		$enabled = array();
+
+		foreach ( $urls as $url_config ) {
+			if ( $url_config['enabled'] ) {
+				$enabled[] = $url_config['url'];
+			}
+		}
+
+		return $enabled;
+	}
+
+	/**
+	 * Save conversion URL configurations.
+	 *
+	 * @param array<int, array{url: string, name: string, enabled: bool}> $urls URL configurations.
+	 * @return void
+	 */
+	public static function set_conversion_urls( array $urls ): void {
+		$valid_urls      = array();
+		$max_urls        = 50;
+		$max_url_length  = 500;
+		$max_name_length = 100;
+
+		foreach ( $urls as $url_config ) {
+			if ( count( $valid_urls ) >= $max_urls ) {
+				break;
+			}
+
+			if ( ! is_array( $url_config ) || empty( $url_config['url'] ) ) {
+				continue;
+			}
+
+			$raw_url = substr( (string) $url_config['url'], 0, $max_url_length );
+			$url     = sanitize_text_field( $raw_url );
+
+			if ( $url === '' ) {
+				continue;
+			}
+
+			$raw_name = substr( (string) ( $url_config['name'] ?? $url ), 0, $max_name_length );
+			$name     = sanitize_text_field( $raw_name );
+
+			$valid_urls[] = array(
+				'url'     => $url,
+				'name'    => $name !== '' ? $name : $url,
+				'enabled' => ! empty( $url_config['enabled'] ),
+			);
+		}
+
+		update_option( self::OPTION_CONVERSION_URLS, $valid_urls, true );
+		unset( self::$cache['conversion_urls'] );
+	}
+
+	/**
+	 * Get the friendly name for a conversion URL.
+	 *
+	 * @param string $url The URL pattern.
+	 * @return string The friendly name, or the URL if not found.
+	 */
+	public static function get_conversion_url_name( string $url ): string {
+		$urls = self::get_conversion_urls();
+
+		foreach ( $urls as $url_config ) {
+			if ( $url_config['url'] === $url ) {
+				return $url_config['name'];
+			}
+		}
+
+		return $url;
+	}
+
+	/**
+	 * Check if a URL matches any conversion URL pattern.
+	 *
+	 * @param string $url The URL to check.
+	 * @return string|false The matched pattern name or false.
+	 */
+	public static function check_conversion_url( string $url ): string|false {
+		$conversion_urls = self::get_conversion_urls();
+
+		foreach ( $conversion_urls as $config ) {
+			if ( ! $config['enabled'] ) {
+				continue;
+			}
+
+			$pattern = $config['url'];
+
+			// Exact match
+			if ( $url === $pattern ) {
+				return $config['name'];
+			}
+
+			// Check if URL contains the pattern
+			if ( strpos( $url, $pattern ) !== false ) {
+				return $config['name'];
+			}
+
+			// Wildcard matching
+			if ( strpos( $pattern, '*' ) !== false ) {
+				$regex = preg_quote( $pattern, '/' );
+				$regex = str_replace( '\\*', '.*', $regex );
+				if ( preg_match( '/^' . $regex . '$/i', $url ) ) {
+					return $config['name'];
+				}
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Get conversion statistics for reporting.
+	 *
+	 * @param string $start_date Start date (YYYY-MM-DD).
+	 * @param string $end_date   End date (YYYY-MM-DD).
+	 * @return array<int, array<string, mixed>>
+	 */
+	public static function get_conversion_stats( string $start_date, string $end_date ): array {
+		global $wpdb;
+		$table = self::table_name();
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$results = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT 
+					link_url as conversion_info,
+					COUNT(*) as conversion_count,
+					COUNT(DISTINCT session_id) as unique_sessions,
+					MIN(created_at) as first_conversion,
+					MAX(created_at) as last_conversion
+				FROM {$table}
+				WHERE event_type = 'conversion'
+					AND DATE(created_at) BETWEEN %s AND %s
+				GROUP BY link_url
+				ORDER BY conversion_count DESC",
+				$start_date,
+				$end_date
+			),
+			ARRAY_A
+		);
+
+		return is_array( $results ) ? $results : array();
+	}
+
+	/**
+	 * Get recent conversions for display.
+	 *
+	 * @param int $limit Maximum results.
+	 * @return array<int, array<string, mixed>>
+	 */
+	public static function get_recent_conversions( int $limit = 50 ): array {
+		global $wpdb;
+		$table = self::table_name();
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$results = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT 
+					id,
+					link_url as conversion_info,
+					page_url,
+					session_id,
+					ip_address,
+					created_at
+				FROM {$table}
+				WHERE event_type = 'conversion'
+				ORDER BY created_at DESC
+				LIMIT %d",
+				$limit
+			),
+			ARRAY_A
+		);
+
+		return is_array( $results ) ? $results : array();
 	}
 
 	/*

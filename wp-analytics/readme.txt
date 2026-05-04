@@ -5,7 +5,7 @@ Tags: analytics, pageviews, engagement, statistics, tracking, conversions
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.2.1
+Stable tag: 1.3.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -22,7 +22,7 @@ WP Analytics is a lightweight, privacy-focused analytics plugin that collects pa
 * **Top Pages Report** - See your most visited pages with engagement metrics
 * Track pageviews, referrers, and link clicks
 * Measure time on page and scroll depth
-* **Custom conversion tracking** - Track button clicks by element ID
+* **Custom conversion tracking** - Track button clicks by ID/class and thank you page URLs
 * Filter and sort analytics in a detailed event log
 * Export data to CSV or PDF
 * Exclude specific post types or URLs from tracking
@@ -119,6 +119,15 @@ By default, users with the `edit_pages` capability (Editors and above) can view 
 * Stricter date validation using checkdate()
 * Improved SQL parameter handling
 
+= 1.3.0 =
+* **Enhanced Conversion Tracking**: Track conversions via button clicks (IDs and classes) and thank you page URLs
+* **Dedicated Conversions Page**: New submenu with conversion statistics, recent conversions, and goal configuration
+* **Sortable Top Pages Table**: Click column headers to sort by pageviews, sessions, time, scroll depth, or conversions
+* **Page Analytics**: Click any page in Top Pages to see detailed stats, trends, sessions, and outbound links
+* **Session Journey**: View complete user journeys showing every page and action in a session
+* Moved conversion configuration to dedicated Conversions page for better organization
+* Improved conversion data storage format to support multiple conversion types
+
 = 1.2.0 =
 * **New Analytics Overview page** with summary statistics cards
 * Added traffic trends chart with month-over-month and year-over-year views
@@ -155,6 +164,9 @@ By default, users with the `edit_pages` capability (Editors and above) can view 
 * Privacy policy integration
 
 == Upgrade Notice ==
+
+= 1.3.0 =
+Enhanced conversion tracking with button classes and thank you page URLs. New dedicated Conversions page with statistics. Sortable tables and detailed page/session analytics views.
 
 = 1.2.0 =
 Major update: New Analytics Overview dashboard with charts and top pages. Improved UI and efficient long-term storage. Update recommended!
