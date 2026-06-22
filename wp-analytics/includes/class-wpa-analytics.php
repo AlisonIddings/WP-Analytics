@@ -187,7 +187,12 @@ final class WPA_Analytics {
 
 			<!-- Top Pages Table -->
 			<div class="wpa-top-pages">
-				<h2><?php echo esc_html__( 'Top Pages', 'wp-analytics' ); ?></h2>
+				<h2>
+					<?php echo esc_html__( 'Top Pages', 'wp-analytics' ); ?>
+					<a href="<?php echo esc_url( admin_url( 'admin.php?page=wp-analytics-pages' ) ); ?>" class="page-title-action" style="margin-left: 10px;">
+						<?php echo esc_html__( 'View All Pages', 'wp-analytics' ); ?>
+					</a>
+				</h2>
 				<?php if ( empty( $top_pages ) ) : ?>
 					<p class="wpa-no-data">
 						<?php echo esc_html__( 'No page data available yet. Visit some pages on your site to start collecting data.', 'wp-analytics' ); ?>

@@ -277,83 +277,289 @@ final class WPA_Session_Details {
 		<?php
 	}
 
+	/** @var int Sessions per page */
+	private const SESSIONS_PER_PAGE = 25;
+
 	/**
-	 * Render list of recent sessions.
+	 * Render list of sessions with search, filter, and pagination.
 	 *
 	 * @return void
 	 */
 	private static function render_sessions_list(): void {
-		$sessions = WPA_Database::get_recent_sessions( 50 );
+		// Get filter parameters
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended
+		$search      = isset( $_GET['s'] ) ? sanitize_text_field( wp_unslash( $_GET['s'] ) ) : '';
+		$range       = isset( $_GET['range'] ) ? sanitize_key( $_GET['range'] ) : '30days';
+		$filter_type = isset( $_GET['filter'] ) ? sanitize_key( $_GET['filter'] ) : '';
+		$paged       = isset( $_GET['paged'] ) ? max( 1, absint( $_GET['paged'] ) ) : 1;
+		// phpcs:enable
+
+		// Calculate date range
+		$dates      = self::get_sessions_date_range( $range );
+		$start_date = $dates['start'];
+		$end_date   = $dates['end'];
+
+		// Get data
+		$total_items = WPA_Database::count_sessions( $start_date, $end_date, $search, $filter_type );
+		$total_pages = (int) ceil( $total_items / self::SESSIONS_PER_PAGE );
+		$sessions    = WPA_Database::get_sessions_paginated( $start_date, $end_date, $search, $filter_type, self::SESSIONS_PER_PAGE, $paged );
+
+		$base_url = admin_url( 'admin.php?page=wp-analytics-session' );
 
 		?>
-		<div class="wrap">
-			<h1>
-				<?php echo esc_html__( 'User Sessions', 'wp-analytics' ); ?>
-				<a href="<?php echo esc_url( admin_url( 'admin.php?page=wp-analytics' ) ); ?>" class="page-title-action">
-					<?php echo esc_html__( '← Back to Overview', 'wp-analytics' ); ?>
-				</a>
-			</h1>
+		<div class="wrap wpa-sessions-list-wrap">
+			<h1><?php echo esc_html__( 'User Sessions', 'wp-analytics' ); ?></h1>
 
-			<p class="description" style="margin: 15px 0;">
-				<?php echo esc_html__( 'Click on a session to view the complete user journey through your site.', 'wp-analytics' ); ?>
+			<!-- Filters Form -->
+			<form method="get" action="<?php echo esc_url( $base_url ); ?>">
+				<input type="hidden" name="page" value="wp-analytics-session" />
+
+				<div class="wpa-filters" style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap; margin: 20px 0; padding: 15px; background: #fff; border: 1px solid #ccd0d4;">
+					<!-- Search -->
+					<div class="wpa-field">
+						<label for="wpa-search"><?php echo esc_html__( 'Search', 'wp-analytics' ); ?></label>
+						<input type="search" id="wpa-search" name="s" value="<?php echo esc_attr( $search ); ?>" placeholder="<?php echo esc_attr__( 'IP, session ID, or page URL...', 'wp-analytics' ); ?>" style="width: 250px;" />
+					</div>
+
+					<!-- Date Range -->
+					<div class="wpa-field">
+						<label for="wpa-range"><?php echo esc_html__( 'Date Range', 'wp-analytics' ); ?></label>
+						<select name="range" id="wpa-range">
+							<option value="today" <?php selected( $range, 'today' ); ?>><?php echo esc_html__( 'Today', 'wp-analytics' ); ?></option>
+							<option value="7days" <?php selected( $range, '7days' ); ?>><?php echo esc_html__( 'Last 7 Days', 'wp-analytics' ); ?></option>
+							<option value="30days" <?php selected( $range, '30days' ); ?>><?php echo esc_html__( 'Last 30 Days', 'wp-analytics' ); ?></option>
+							<option value="90days" <?php selected( $range, '90days' ); ?>><?php echo esc_html__( 'Last 90 Days', 'wp-analytics' ); ?></option>
+							<option value="all" <?php selected( $range, 'all' ); ?>><?php echo esc_html__( 'All Time', 'wp-analytics' ); ?></option>
+						</select>
+					</div>
+
+					<!-- Filter Type -->
+					<div class="wpa-field">
+						<label for="wpa-filter"><?php echo esc_html__( 'Show', 'wp-analytics' ); ?></label>
+						<select name="filter" id="wpa-filter">
+							<option value="" <?php selected( $filter_type, '' ); ?>><?php echo esc_html__( 'All Sessions', 'wp-analytics' ); ?></option>
+							<option value="conversions" <?php selected( $filter_type, 'conversions' ); ?>><?php echo esc_html__( 'With Conversions', 'wp-analytics' ); ?></option>
+							<option value="multipage" <?php selected( $filter_type, 'multipage' ); ?>><?php echo esc_html__( 'Multi-Page (2+)', 'wp-analytics' ); ?></option>
+							<option value="bounced" <?php selected( $filter_type, 'bounced' ); ?>><?php echo esc_html__( 'Bounced (1 page)', 'wp-analytics' ); ?></option>
+						</select>
+					</div>
+
+					<!-- Submit -->
+					<div class="wpa-field">
+						<button type="submit" class="button button-primary"><?php echo esc_html__( 'Filter', 'wp-analytics' ); ?></button>
+						<?php if ( $search !== '' || $range !== '30days' || $filter_type !== '' ) : ?>
+							<a href="<?php echo esc_url( $base_url ); ?>" class="button"><?php echo esc_html__( 'Reset', 'wp-analytics' ); ?></a>
+						<?php endif; ?>
+					</div>
+				</div>
+			</form>
+
+			<!-- Results Summary -->
+			<p class="wpa-results-summary">
+				<?php
+				printf(
+					/* translators: %s: number of sessions */
+					esc_html( _n( '%s session found', '%s sessions found', $total_items, 'wp-analytics' ) ),
+					'<strong>' . esc_html( number_format_i18n( $total_items ) ) . '</strong>'
+				);
+				?>
+				<span class="description" style="margin-left: 10px;">
+					<?php echo esc_html__( 'Click on a session to view the complete user journey.', 'wp-analytics' ); ?>
+				</span>
 			</p>
 
 			<?php if ( empty( $sessions ) ) : ?>
 				<div class="notice notice-info">
-					<p><?php echo esc_html__( 'No sessions recorded yet. Visit your site to start collecting data.', 'wp-analytics' ); ?></p>
+					<p><?php echo esc_html__( 'No sessions found matching your criteria.', 'wp-analytics' ); ?></p>
 				</div>
 			<?php else : ?>
 				<table class="wp-list-table widefat fixed striped">
 					<thead>
 						<tr>
-							<th><?php echo esc_html__( 'Session ID', 'wp-analytics' ); ?></th>
-							<th><?php echo esc_html__( 'Started', 'wp-analytics' ); ?></th>
-							<th><?php echo esc_html__( 'Pages', 'wp-analytics' ); ?></th>
-							<th><?php echo esc_html__( 'Conversions', 'wp-analytics' ); ?></th>
+							<th style="width: 140px;"><?php echo esc_html__( 'Session ID', 'wp-analytics' ); ?></th>
+							<th style="width: 140px;"><?php echo esc_html__( 'Started', 'wp-analytics' ); ?></th>
+							<th style="width: 80px;"><?php echo esc_html__( 'Duration', 'wp-analytics' ); ?></th>
+							<th style="width: 70px;"><?php echo esc_html__( 'Pages', 'wp-analytics' ); ?></th>
+							<th style="width: 90px;"><?php echo esc_html__( 'Conversions', 'wp-analytics' ); ?></th>
 							<th><?php echo esc_html__( 'Entry Page', 'wp-analytics' ); ?></th>
-							<th><?php echo esc_html__( 'IP Address', 'wp-analytics' ); ?></th>
+							<th style="width: 120px;"><?php echo esc_html__( 'IP Address', 'wp-analytics' ); ?></th>
+							<th style="width: 80px;"><?php echo esc_html__( 'Actions', 'wp-analytics' ); ?></th>
 						</tr>
 					</thead>
 					<tbody>
 						<?php foreach ( $sessions as $session ) : ?>
+							<?php
+							$session_url = admin_url( 'admin.php?page=wp-analytics-session&session=' . urlencode( $session['session_id'] ) );
+							$entry_path  = WPA_Database::extract_path( $session['entry_page'] ?? '' );
+							$truncated   = strlen( $entry_path ) > 35 ? substr( $entry_path, 0, 32 ) . '...' : $entry_path;
+
+							// Calculate duration
+							$duration = 0;
+							if ( ! empty( $session['session_start'] ) && ! empty( $session['session_end'] ) ) {
+								$start    = strtotime( $session['session_start'] );
+								$end      = strtotime( $session['session_end'] );
+								$duration = $start && $end ? max( 0, $end - $start ) : 0;
+							}
+							?>
 							<tr>
 								<td>
-									<a href="<?php echo esc_url( admin_url( 'admin.php?page=wp-analytics-session&session=' . urlencode( $session['session_id'] ) ) ); ?>">
+									<a href="<?php echo esc_url( $session_url ); ?>">
 										<strong><?php echo esc_html( substr( $session['session_id'], 0, 12 ) . '...' ); ?></strong>
 									</a>
 								</td>
 								<td>
-									<span title="<?php echo esc_attr( $session['session_start'] ); ?>">
-										<?php echo esc_html( self::time_ago( $session['session_start'] ) ); ?>
+									<span title="<?php echo esc_attr( $session['session_start'] ?? '' ); ?>">
+										<?php echo esc_html( self::time_ago( $session['session_start'] ?? '' ) ); ?>
 									</span>
 								</td>
-								<td><?php echo esc_html( number_format_i18n( (int) $session['pages_viewed'] ) ); ?></td>
+								<td><?php echo esc_html( self::format_duration( $duration ) ); ?></td>
 								<td>
-									<?php if ( (int) $session['conversions'] > 0 ) : ?>
-										<span style="color: #4caf50; font-weight: 600;">
+									<?php
+									$pages = (int) ( $session['pages_viewed'] ?? 0 );
+									if ( $pages === 1 ) {
+										echo '<span style="color: #999;">' . esc_html( $pages ) . '</span>';
+									} else {
+										echo esc_html( number_format_i18n( $pages ) );
+									}
+									?>
+								</td>
+								<td>
+									<?php if ( (int) ( $session['conversions'] ?? 0 ) > 0 ) : ?>
+										<span style="background: #4caf50; color: #fff; padding: 2px 8px; border-radius: 3px; font-size: 12px;">
 											<?php echo esc_html( number_format_i18n( (int) $session['conversions'] ) ); ?>
 										</span>
 									<?php else : ?>
-										0
+										<span style="color: #999;">0</span>
 									<?php endif; ?>
 								</td>
 								<td>
-									<?php
-									$entry_path = WPA_Database::extract_path( $session['entry_page'] ?? '' );
-									$truncated  = strlen( $entry_path ) > 40 ? substr( $entry_path, 0, 37 ) . '...' : $entry_path;
-									?>
 									<a href="<?php echo esc_url( admin_url( 'admin.php?page=wp-analytics-page&path=' . urlencode( $entry_path ) ) ); ?>" title="<?php echo esc_attr( $entry_path ); ?>">
 										<?php echo esc_html( $truncated ); ?>
 									</a>
 								</td>
 								<td><?php echo esc_html( $session['ip_address'] ?? '' ); ?></td>
+								<td>
+									<a href="<?php echo esc_url( $session_url ); ?>" class="button button-small">
+										<?php echo esc_html__( 'View', 'wp-analytics' ); ?>
+									</a>
+								</td>
 							</tr>
 						<?php endforeach; ?>
 					</tbody>
 				</table>
+
+				<!-- Pagination -->
+				<?php if ( $total_pages > 1 ) : ?>
+					<div class="tablenav bottom">
+						<div class="tablenav-pages">
+							<span class="displaying-num">
+								<?php
+								printf(
+									/* translators: %s: number of items */
+									esc_html( _n( '%s session', '%s sessions', $total_items, 'wp-analytics' ) ),
+									esc_html( number_format_i18n( $total_items ) )
+								);
+								?>
+							</span>
+							<span class="pagination-links">
+								<?php echo self::render_sessions_pagination( $paged, $total_pages, $search, $range, $filter_type ); ?>
+							</span>
+						</div>
+					</div>
+				<?php endif; ?>
 			<?php endif; ?>
 		</div>
 		<?php
+	}
+
+	/**
+	 * Render pagination links for sessions list.
+	 *
+	 * @param int    $current Current page.
+	 * @param int    $total   Total pages.
+	 * @param string $search  Current search.
+	 * @param string $range   Current range.
+	 * @param string $filter  Current filter.
+	 * @return string HTML for pagination.
+	 */
+	private static function render_sessions_pagination( int $current, int $total, string $search, string $range, string $filter ): string {
+		$base_args = array(
+			'page'   => 'wp-analytics-session',
+			's'      => $search,
+			'range'  => $range,
+			'filter' => $filter,
+		);
+
+		$output = '';
+
+		// First page
+		if ( $current > 1 ) {
+			$url     = add_query_arg( array_merge( $base_args, array( 'paged' => 1 ) ), admin_url( 'admin.php' ) );
+			$output .= sprintf( '<a class="first-page button" href="%s">«</a> ', esc_url( $url ) );
+		} else {
+			$output .= '<span class="tablenav-pages-navspan button disabled">«</span> ';
+		}
+
+		// Previous page
+		if ( $current > 1 ) {
+			$url     = add_query_arg( array_merge( $base_args, array( 'paged' => $current - 1 ) ), admin_url( 'admin.php' ) );
+			$output .= sprintf( '<a class="prev-page button" href="%s">‹</a> ', esc_url( $url ) );
+		} else {
+			$output .= '<span class="tablenav-pages-navspan button disabled">‹</span> ';
+		}
+
+		// Page indicator
+		$output .= sprintf( '<span class="paging-input">%d / %d</span> ', $current, $total );
+
+		// Next page
+		if ( $current < $total ) {
+			$url     = add_query_arg( array_merge( $base_args, array( 'paged' => $current + 1 ) ), admin_url( 'admin.php' ) );
+			$output .= sprintf( '<a class="next-page button" href="%s">›</a> ', esc_url( $url ) );
+		} else {
+			$output .= '<span class="tablenav-pages-navspan button disabled">›</span> ';
+		}
+
+		// Last page
+		if ( $current < $total ) {
+			$url     = add_query_arg( array_merge( $base_args, array( 'paged' => $total ) ), admin_url( 'admin.php' ) );
+			$output .= sprintf( '<a class="last-page button" href="%s">»</a>', esc_url( $url ) );
+		} else {
+			$output .= '<span class="tablenav-pages-navspan button disabled">»</span>';
+		}
+
+		return $output;
+	}
+
+	/**
+	 * Get date range for sessions list.
+	 *
+	 * @param string $range Range key.
+	 * @return array{start: string, end: string}
+	 */
+	private static function get_sessions_date_range( string $range ): array {
+		$end_date = gmdate( 'Y-m-d' );
+
+		switch ( $range ) {
+			case 'today':
+				$start_date = $end_date;
+				break;
+			case '7days':
+				$start_date = gmdate( 'Y-m-d', strtotime( '-7 days' ) );
+				break;
+			case '90days':
+				$start_date = gmdate( 'Y-m-d', strtotime( '-90 days' ) );
+				break;
+			case 'all':
+				$start_date = '2000-01-01';
+				break;
+			default:
+				$start_date = gmdate( 'Y-m-d', strtotime( '-30 days' ) );
+		}
+
+		return array(
+			'start' => $start_date,
+			'end'   => $end_date,
+		);
 	}
 
 	/**

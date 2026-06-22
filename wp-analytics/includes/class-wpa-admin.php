@@ -87,6 +87,36 @@ final class WPA_Admin {
 			array( __CLASS__, 'render_overview_page' )
 		);
 
+		// All Pages submenu
+		add_submenu_page(
+			self::MENU_SLUG,
+			__( 'All Pages', 'wp-analytics' ),
+			__( 'All Pages', 'wp-analytics' ),
+			wpa_view_analytics_capability(),
+			self::MENU_SLUG . '-pages',
+			array( __CLASS__, 'render_pages_list' )
+		);
+
+		// User Sessions submenu
+		add_submenu_page(
+			self::MENU_SLUG,
+			__( 'Sessions', 'wp-analytics' ),
+			__( 'Sessions', 'wp-analytics' ),
+			wpa_view_analytics_capability(),
+			self::MENU_SLUG . '-session',
+			array( __CLASS__, 'render_session_page' )
+		);
+
+		// Conversions submenu
+		add_submenu_page(
+			self::MENU_SLUG,
+			__( 'Conversions', 'wp-analytics' ),
+			__( 'Conversions', 'wp-analytics' ),
+			wpa_view_analytics_capability(),
+			self::MENU_SLUG . '-conversions',
+			array( __CLASS__, 'render_conversions_page' )
+		);
+
 		// Events log submenu
 		add_submenu_page(
 			self::MENU_SLUG,
@@ -105,26 +135,6 @@ final class WPA_Admin {
 			'manage_options',
 			self::MENU_SLUG . '-settings',
 			array( __CLASS__, 'render_settings_page' )
-		);
-
-		// Conversions submenu
-		add_submenu_page(
-			self::MENU_SLUG,
-			__( 'Conversions', 'wp-analytics' ),
-			__( 'Conversions', 'wp-analytics' ),
-			wpa_view_analytics_capability(),
-			self::MENU_SLUG . '-conversions',
-			array( __CLASS__, 'render_conversions_page' )
-		);
-
-		// User Sessions submenu
-		add_submenu_page(
-			self::MENU_SLUG,
-			__( 'User Sessions', 'wp-analytics' ),
-			__( 'User Sessions', 'wp-analytics' ),
-			wpa_view_analytics_capability(),
-			self::MENU_SLUG . '-session',
-			array( __CLASS__, 'render_session_page' )
 		);
 
 		// Hidden page for single page details (no menu entry)
@@ -176,6 +186,16 @@ final class WPA_Admin {
 	public static function render_conversions_page(): void {
 		self::load_conversions_class();
 		WPA_Conversions::render_page();
+	}
+
+	/**
+	 * Render the all pages list.
+	 *
+	 * @return void
+	 */
+	public static function render_pages_list(): void {
+		self::load_pages_list_class();
+		WPA_Pages_List::render_page();
 	}
 
 	/**
@@ -241,6 +261,17 @@ final class WPA_Admin {
 	private static function load_conversions_class(): void {
 		if ( ! class_exists( 'WPA_Conversions' ) ) {
 			require_once WPA_PLUGIN_DIR . 'includes/class-wpa-conversions.php';
+		}
+	}
+
+	/**
+	 * Load the pages list class on demand.
+	 *
+	 * @return void
+	 */
+	private static function load_pages_list_class(): void {
+		if ( ! class_exists( 'WPA_Pages_List' ) ) {
+			require_once WPA_PLUGIN_DIR . 'includes/class-wpa-pages-list.php';
 		}
 	}
 
