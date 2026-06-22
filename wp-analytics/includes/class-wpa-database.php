@@ -2524,6 +2524,8 @@ final class WPA_Database {
 	/**
 	 * Count total unique pages for pagination.
 	 *
+	 * Groups by extracted path (without query params) to avoid duplicates.
+	 *
 	 * @param string $start_date Start date (YYYY-MM-DD).
 	 * @param string $end_date   End date (YYYY-MM-DD).
 	 * @param string $search     Optional search term.
@@ -2541,10 +2543,22 @@ final class WPA_Database {
 			$params[] = '%' . $wpdb->esc_like( $search ) . '%';
 		}
 
+		// Count unique paths by extracting path from URL (removes query params and fragments)
+		// Uses MySQL string functions to normalize URLs before counting
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$count = $wpdb->get_var(
 			$wpdb->prepare(
-				"SELECT COUNT(DISTINCT page_url) FROM {$table} WHERE {$where}",
+				"SELECT COUNT(DISTINCT 
+					CASE 
+						WHEN page_url LIKE 'http://%' OR page_url LIKE 'https://%' THEN
+							SUBSTRING(
+								SUBSTRING_INDEX(SUBSTRING_INDEX(page_url, '?', 1), '#', 1),
+								LOCATE('/', page_url, 9)
+							)
+						ELSE 
+							SUBSTRING_INDEX(SUBSTRING_INDEX(page_url, '?', 1), '#', 1)
+					END
+				) FROM {$table} WHERE {$where}",
 				$params
 			)
 		);
@@ -2554,6 +2568,8 @@ final class WPA_Database {
 
 	/**
 	 * Get all pages with pagination, search, and sorting.
+	 *
+	 * Groups by extracted path (without query params) to consolidate duplicate pages.
 	 *
 	 * @param string $start_date Start date (YYYY-MM-DD).
 	 * @param string $end_date   End date (YYYY-MM-DD).
@@ -2570,7 +2586,7 @@ final class WPA_Database {
 
 		// Validate orderby
 		$allowed_orderby = array(
-			'page_path'         => 'page_url',
+			'page_path'         => 'page_path',
 			'pageviews'         => 'total_pageviews',
 			'sessions'          => 'total_sessions',
 			'avg_time'          => 'avg_time',
@@ -2593,11 +2609,23 @@ final class WPA_Database {
 		$params[] = $per_page;
 		$params[] = $offset;
 
+		// Extract path from URL using MySQL string functions
+		// This removes query params (?...) and fragments (#...) and extracts just the path
+		$path_extract = "CASE 
+			WHEN page_url LIKE 'http://%' OR page_url LIKE 'https://%' THEN
+				SUBSTRING(
+					SUBSTRING_INDEX(SUBSTRING_INDEX(page_url, '?', 1), '#', 1),
+					LOCATE('/', page_url, 9)
+				)
+			ELSE 
+				SUBSTRING_INDEX(SUBSTRING_INDEX(page_url, '?', 1), '#', 1)
+		END";
+
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$results = $wpdb->get_results(
 			$wpdb->prepare(
 				"SELECT 
-					page_url,
+					{$path_extract} as page_path,
 					COUNT(CASE WHEN event_type = 'pageview' THEN 1 END) as total_pageviews,
 					COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN session_id END) as total_sessions,
 					COALESCE(ROUND(AVG(CASE WHEN event_type = 'pageview' AND time_on_page > 0 THEN time_on_page END)), 0) as avg_time,
@@ -2605,7 +2633,7 @@ final class WPA_Database {
 					COUNT(CASE WHEN event_type = 'conversion' THEN 1 END) as total_conversions
 				FROM {$table}
 				WHERE {$where}
-				GROUP BY page_url
+				GROUP BY page_path
 				HAVING total_pageviews > 0
 				ORDER BY {$order_column} {$order}
 				LIMIT %d OFFSET %d",
@@ -2618,10 +2646,12 @@ final class WPA_Database {
 			return array();
 		}
 
-		// Convert page_url to page_path
+		// Ensure paths start with / and are not empty
 		foreach ( $results as &$row ) {
-			$row['page_path'] = self::extract_path( $row['page_url'] ?? '' );
-			unset( $row['page_url'] );
+			$path = $row['page_path'] ?? '';
+			if ( $path === '' || strpos( $path, '/' ) !== 0 ) {
+				$row['page_path'] = '/' . ltrim( $path, '/' );
+			}
 		}
 
 		return $results;
