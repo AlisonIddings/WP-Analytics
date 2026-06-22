@@ -25,6 +25,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * - POST /wp-analytics/v1/engagement - Update engagement metrics
  * - POST /wp-analytics/v1/link-click - Record a link click
  * - POST /wp-analytics/v1/conversion - Record a conversion event
+ * - GET  /wp-analytics/v1/audit-export - Export monthly analytics report
  *
  * @since 1.0.0
  */
@@ -191,9 +192,30 @@ final class WPA_REST_API {
 						'type'     => 'string',
 						'required' => true,
 					),
-					'session'     => array(
+				'session'     => array(
+					'type'     => 'string',
+					'required' => true,
+				),
+			),
+		)
+	);
+
+		// Audit export endpoint - returns JSON analytics report for a month
+		register_rest_route(
+			self::NAMESPACE,
+			'/audit-export',
+			array(
+				'methods'             => 'GET',
+				'callback'            => array( __CLASS__, 'handle_audit_export' ),
+				'permission_callback' => '__return_true',
+				'args'                => array(
+					'token' => array(
 						'type'     => 'string',
 						'required' => true,
+					),
+					'month' => array(
+						'type'     => 'string',
+						'required' => false,
 					),
 				),
 			)
@@ -611,6 +633,252 @@ final class WPA_REST_API {
 			),
 			200
 		);
+	}
+
+	/**
+	 * Handle audit export requests.
+	 *
+	 * Returns a comprehensive JSON analytics report for a specified month.
+	 * Uses aggregated data from wpa_daily_stats where available, falls back
+	 * to wpa_events for the current/recent month if not yet aggregated.
+	 *
+	 * @param WP_REST_Request $request The incoming request.
+	 * @return WP_REST_Response|WP_Error Response or error.
+	 */
+	public static function handle_audit_export( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		// Validate token from query params
+		$valid = self::validate_export_token( $request );
+		if ( is_wp_error( $valid ) ) {
+			return $valid;
+		}
+
+		// Parse month parameter (YYYY-MM format), default to previous complete month
+		$month_param = (string) $request->get_param( 'month' );
+		$month_info  = self::parse_month_param( $month_param );
+
+		if ( is_wp_error( $month_info ) ) {
+			return $month_info;
+		}
+
+		$period     = $month_info['period'];
+		$start_date = $month_info['start_date'];
+		$end_date   = $month_info['end_date'];
+
+		// Determine if we should use aggregated data or real-time
+		$use_realtime = self::should_use_realtime( $start_date, $end_date );
+
+		// Fetch all data
+		$summary              = self::get_audit_summary( $start_date, $end_date, $use_realtime );
+		$top_pages            = self::get_audit_top_pages( $start_date, $end_date, $use_realtime );
+		$traffic_trend        = self::get_audit_traffic_trend( $start_date, $end_date, $use_realtime );
+		$top_entry_pages      = WPA_Database::get_top_entry_pages( $start_date, $end_date, 10 );
+		$top_outbound_links   = WPA_Database::get_top_outbound_links( $start_date, $end_date, 10 );
+		$conversions_by_goal  = WPA_Database::get_conversions_by_goal( $start_date, $end_date );
+
+		// Calculate conversion rate
+		$total_sessions    = (int) $summary['total_sessions'];
+		$total_conversions = (int) $summary['total_conversions'];
+		$conversion_rate   = $total_sessions > 0
+			? round( ( $total_conversions / $total_sessions ) * 100, 2 )
+			: 0.0;
+
+		// Build response
+		$response = array(
+			'site_url'             => home_url(),
+			'period'               => $period,
+			'generated_at'         => gmdate( 'Y-m-d\TH:i:s\Z' ),
+			'summary'              => array(
+				'total_pageviews'   => (int) $summary['total_pageviews'],
+				'total_sessions'    => $total_sessions,
+				'avg_time_on_page'  => (int) $summary['avg_time'],
+				'avg_scroll_depth'  => (int) $summary['avg_scroll'],
+				'total_conversions' => $total_conversions,
+				'conversion_rate'   => $conversion_rate,
+			),
+			'top_pages'            => $top_pages,
+			'traffic_trend'        => $traffic_trend,
+			'top_entry_pages'      => $top_entry_pages,
+			'top_outbound_links'   => $top_outbound_links,
+			'conversions_by_goal'  => $conversions_by_goal,
+		);
+
+		return new WP_REST_Response( $response, 200 );
+	}
+
+	/**
+	 * Validate token for export endpoint (GET request).
+	 *
+	 * Simplified validation for read-only export - only checks token.
+	 * No Content-Type, same-origin, or rate limiting checks needed.
+	 *
+	 * @param WP_REST_Request $request The incoming request.
+	 * @return true|WP_Error True if valid, WP_Error otherwise.
+	 */
+	private static function validate_export_token( WP_REST_Request $request ): true|WP_Error {
+		$token        = (string) $request->get_param( 'token' );
+		$stored_token = WPA_Database::get_public_token();
+
+		if ( $stored_token === '' || $token === '' || ! hash_equals( $stored_token, $token ) ) {
+			return new WP_Error(
+				'wpa_invalid_token',
+				__( 'Invalid token.', 'wp-analytics' ),
+				array( 'status' => 403 )
+			);
+		}
+
+		return true;
+	}
+
+	/**
+	 * Parse month parameter into date range.
+	 *
+	 * @param string $month_param Month in YYYY-MM format, or empty for previous month.
+	 * @return array{period: string, start_date: string, end_date: string}|WP_Error
+	 */
+	private static function parse_month_param( string $month_param ): array|WP_Error {
+		if ( $month_param === '' ) {
+			// Default to previous complete month
+			$prev_month = strtotime( 'first day of last month' );
+			$year       = (int) gmdate( 'Y', $prev_month );
+			$month      = (int) gmdate( 'm', $prev_month );
+		} else {
+			// Validate YYYY-MM format
+			if ( ! preg_match( '/^(\d{4})-(\d{2})$/', $month_param, $matches ) ) {
+				return new WP_Error(
+					'wpa_invalid_month',
+					__( 'Invalid month format. Use YYYY-MM.', 'wp-analytics' ),
+					array( 'status' => 400 )
+				);
+			}
+
+			$year  = (int) $matches[1];
+			$month = (int) $matches[2];
+
+			// Validate month is reasonable
+			if ( $month < 1 || $month > 12 || $year < 2000 || $year > 2100 ) {
+				return new WP_Error(
+					'wpa_invalid_month',
+					__( 'Invalid month value.', 'wp-analytics' ),
+					array( 'status' => 400 )
+				);
+			}
+		}
+
+		$start_date = sprintf( '%04d-%02d-01', $year, $month );
+		$end_date   = gmdate( 'Y-m-t', strtotime( $start_date ) );
+		$period     = sprintf( '%04d-%02d', $year, $month );
+
+		return array(
+			'period'     => $period,
+			'start_date' => $start_date,
+			'end_date'   => $end_date,
+		);
+	}
+
+	/**
+	 * Determine if real-time data should be used instead of aggregated.
+	 *
+	 * Uses real-time if:
+	 * - No aggregated stats exist at all
+	 * - The requested period includes the current month (not yet fully aggregated)
+	 *
+	 * @param string $start_date Start date (YYYY-MM-DD).
+	 * @param string $end_date   End date (YYYY-MM-DD).
+	 * @return bool True if real-time data should be used.
+	 */
+	private static function should_use_realtime( string $start_date, string $end_date ): bool {
+		// Check if aggregated stats exist
+		if ( ! WPA_Database::has_aggregated_stats() ) {
+			return true;
+		}
+
+		// Check if period includes current month (which may not be aggregated yet)
+		$current_month_start = gmdate( 'Y-m-01' );
+		if ( $end_date >= $current_month_start ) {
+			return true;
+		}
+
+		return false;
+	}
+
+	/**
+	 * Get summary stats for audit export.
+	 *
+	 * @param string $start_date Start date.
+	 * @param string $end_date   End date.
+	 * @param bool   $use_realtime Whether to use real-time data.
+	 * @return array<string, int>
+	 */
+	private static function get_audit_summary( string $start_date, string $end_date, bool $use_realtime ): array {
+		if ( $use_realtime ) {
+			return WPA_Database::get_realtime_summary_stats( $start_date, $end_date );
+		}
+		return WPA_Database::get_summary_stats( $start_date, $end_date );
+	}
+
+	/**
+	 * Get top pages for audit export with bounce indicator.
+	 *
+	 * @param string $start_date Start date.
+	 * @param string $end_date   End date.
+	 * @param bool   $use_realtime Whether to use real-time data.
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function get_audit_top_pages( string $start_date, string $end_date, bool $use_realtime ): array {
+		// Get base top pages data
+		if ( $use_realtime ) {
+			$pages = WPA_Database::get_realtime_top_pages( $start_date, $end_date, 20 );
+		} else {
+			$pages = WPA_Database::get_top_pages( $start_date, $end_date, 20 );
+		}
+
+		// Get bounce data for the period
+		$bounces = WPA_Database::get_bounce_counts_by_page( $start_date, $end_date );
+
+		// Format response
+		$result = array();
+		foreach ( $pages as $page ) {
+			$page_path = $page['page_path'] ?? '';
+			$result[]  = array(
+				'page_path'        => $page_path,
+				'pageviews'        => (int) ( $page['total_pageviews'] ?? 0 ),
+				'sessions'         => (int) ( $page['total_sessions'] ?? 0 ),
+				'avg_time'         => (int) ( $page['avg_time'] ?? 0 ),
+				'avg_scroll'       => (int) ( $page['avg_scroll'] ?? 0 ),
+				'conversions'      => (int) ( $page['total_conversions'] ?? 0 ),
+				'bounce_indicator' => (int) ( $bounces[ $page_path ] ?? 0 ),
+			);
+		}
+
+		return $result;
+	}
+
+	/**
+	 * Get traffic trend for audit export.
+	 *
+	 * @param string $start_date Start date.
+	 * @param string $end_date   End date.
+	 * @param bool   $use_realtime Whether to use real-time data.
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function get_audit_traffic_trend( string $start_date, string $end_date, bool $use_realtime ): array {
+		if ( $use_realtime ) {
+			$trends = WPA_Database::get_realtime_daily_trends_for_range( $start_date, $end_date );
+		} else {
+			$trends = WPA_Database::get_daily_trends_for_range( $start_date, $end_date );
+		}
+
+		$result = array();
+		foreach ( $trends as $trend ) {
+			$result[] = array(
+				'date'        => $trend['period'] ?? $trend['date'] ?? '',
+				'pageviews'   => (int) ( $trend['pageviews'] ?? 0 ),
+				'sessions'    => (int) ( $trend['sessions'] ?? 0 ),
+				'conversions' => (int) ( $trend['conversions'] ?? 0 ),
+			);
+		}
+
+		return $result;
 	}
 
 	/*

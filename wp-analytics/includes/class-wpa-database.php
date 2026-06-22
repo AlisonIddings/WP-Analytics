@@ -2222,4 +2222,296 @@ final class WPA_Database {
 
 		return is_int( $deleted ) ? $deleted : 0;
 	}
+
+	/*
+	 * =========================================================================
+	 * AUDIT EXPORT METHODS
+	 * =========================================================================
+	 */
+
+	/**
+	 * Get top entry pages for a date range.
+	 *
+	 * Entry pages are the first pageview of each session.
+	 *
+	 * @param string $start_date Start date (YYYY-MM-DD).
+	 * @param string $end_date   End date (YYYY-MM-DD).
+	 * @param int    $limit      Maximum results.
+	 * @return array<int, array{page_path: string, entries: int}>
+	 */
+	public static function get_top_entry_pages( string $start_date, string $end_date, int $limit = 10 ): array {
+		global $wpdb;
+		$table = self::table_name();
+
+		// Find the first pageview for each session, then count by page
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$results = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT 
+					page_url,
+					COUNT(*) as entries
+				FROM (
+					SELECT 
+						session_id,
+						page_url,
+						ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY created_at ASC) as rn
+					FROM {$table}
+					WHERE event_type = 'pageview'
+						AND session_id IS NOT NULL
+						AND session_id != ''
+						AND DATE(created_at) BETWEEN %s AND %s
+				) AS first_pages
+				WHERE rn = 1
+				GROUP BY page_url
+				ORDER BY entries DESC
+				LIMIT %d",
+				$start_date,
+				$end_date,
+				$limit
+			),
+			ARRAY_A
+		);
+
+		if ( ! is_array( $results ) ) {
+			return array();
+		}
+
+		$formatted = array();
+		foreach ( $results as $row ) {
+			$formatted[] = array(
+				'page_path' => self::extract_path( $row['page_url'] ?? '' ),
+				'entries'   => (int) ( $row['entries'] ?? 0 ),
+			);
+		}
+
+		return $formatted;
+	}
+
+	/**
+	 * Get top outbound links for a date range.
+	 *
+	 * @param string $start_date Start date (YYYY-MM-DD).
+	 * @param string $end_date   End date (YYYY-MM-DD).
+	 * @param int    $limit      Maximum results.
+	 * @return array<int, array{link_url: string, clicks: int}>
+	 */
+	public static function get_top_outbound_links( string $start_date, string $end_date, int $limit = 10 ): array {
+		global $wpdb;
+		$table    = self::table_name();
+		$site_url = home_url();
+
+		// Get external links (not starting with site URL)
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$results = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT 
+					link_url,
+					COUNT(*) as clicks
+				FROM {$table}
+				WHERE event_type = 'link_click'
+					AND link_url IS NOT NULL
+					AND link_url != ''
+					AND link_url NOT LIKE %s
+					AND DATE(created_at) BETWEEN %s AND %s
+				GROUP BY link_url
+				ORDER BY clicks DESC
+				LIMIT %d",
+				$wpdb->esc_like( $site_url ) . '%',
+				$start_date,
+				$end_date,
+				$limit
+			),
+			ARRAY_A
+		);
+
+		if ( ! is_array( $results ) ) {
+			return array();
+		}
+
+		$formatted = array();
+		foreach ( $results as $row ) {
+			$formatted[] = array(
+				'link_url' => $row['link_url'] ?? '',
+				'clicks'   => (int) ( $row['clicks'] ?? 0 ),
+			);
+		}
+
+		return $formatted;
+	}
+
+	/**
+	 * Get bounce counts by page for a date range.
+	 *
+	 * A "bounce" is a session where only one pageview was recorded.
+	 * Returns the count of bouncing sessions that started on each page.
+	 *
+	 * @param string $start_date Start date (YYYY-MM-DD).
+	 * @param string $end_date   End date (YYYY-MM-DD).
+	 * @return array<string, int> Map of page_path => bounce count.
+	 */
+	public static function get_bounce_counts_by_page( string $start_date, string $end_date ): array {
+		global $wpdb;
+		$table = self::table_name();
+
+		// Find sessions with only one pageview and get their entry page
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$results = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT 
+					entry_page,
+					COUNT(*) as bounce_count
+				FROM (
+					SELECT 
+						session_id,
+						MIN(page_url) as entry_page,
+						COUNT(*) as pageview_count
+					FROM {$table}
+					WHERE event_type = 'pageview'
+						AND session_id IS NOT NULL
+						AND session_id != ''
+						AND DATE(created_at) BETWEEN %s AND %s
+					GROUP BY session_id
+					HAVING pageview_count = 1
+				) AS bounced_sessions
+				GROUP BY entry_page",
+				$start_date,
+				$end_date
+			),
+			ARRAY_A
+		);
+
+		if ( ! is_array( $results ) ) {
+			return array();
+		}
+
+		$bounce_map = array();
+		foreach ( $results as $row ) {
+			$page_path                = self::extract_path( $row['entry_page'] ?? '' );
+			$bounce_map[ $page_path ] = (int) ( $row['bounce_count'] ?? 0 );
+		}
+
+		return $bounce_map;
+	}
+
+	/**
+	 * Get conversions grouped by goal for a date range.
+	 *
+	 * @param string $start_date Start date (YYYY-MM-DD).
+	 * @param string $end_date   End date (YYYY-MM-DD).
+	 * @return array<int, array{goal_name: string, conversion_type: string, count: int, unique_sessions: int}>
+	 */
+	public static function get_conversions_by_goal( string $start_date, string $end_date ): array {
+		global $wpdb;
+		$table = self::table_name();
+
+		// link_url stores conversion info as "type|value|name"
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$results = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT 
+					link_url as conversion_info,
+					COUNT(*) as total_count,
+					COUNT(DISTINCT session_id) as unique_sessions
+				FROM {$table}
+				WHERE event_type = 'conversion'
+					AND DATE(created_at) BETWEEN %s AND %s
+				GROUP BY link_url
+				ORDER BY total_count DESC",
+				$start_date,
+				$end_date
+			),
+			ARRAY_A
+		);
+
+		if ( ! is_array( $results ) ) {
+			return array();
+		}
+
+		$formatted = array();
+		foreach ( $results as $row ) {
+			$info = self::parse_conversion_info( $row['conversion_info'] ?? '' );
+
+			$formatted[] = array(
+				'goal_name'       => $info['name'],
+				'conversion_type' => $info['type'],
+				'count'           => (int) ( $row['total_count'] ?? 0 ),
+				'unique_sessions' => (int) ( $row['unique_sessions'] ?? 0 ),
+			);
+		}
+
+		return $formatted;
+	}
+
+	/**
+	 * Parse conversion info from stored format.
+	 *
+	 * Handles both old format (id|name) and new format (type|value|name).
+	 *
+	 * @param string $info The stored conversion info.
+	 * @return array{type: string, value: string, name: string}
+	 */
+	private static function parse_conversion_info( string $info ): array {
+		$parts = explode( '|', $info );
+
+		// New format: type|value|name
+		if ( count( $parts ) >= 3 && in_array( $parts[0], array( 'id', 'class', 'url' ), true ) ) {
+			return array(
+				'type'  => $parts[0],
+				'value' => $parts[1],
+				'name'  => $parts[2],
+			);
+		}
+
+		// Old format: id|name (assume type is 'id')
+		if ( count( $parts ) >= 2 ) {
+			return array(
+				'type'  => 'id',
+				'value' => $parts[0],
+				'name'  => $parts[1],
+			);
+		}
+
+		// Fallback
+		return array(
+			'type'  => 'unknown',
+			'value' => $info,
+			'name'  => $info,
+		);
+	}
+
+	/**
+	 * Get real-time daily trends for a specific date range.
+	 *
+	 * Similar to get_realtime_daily_trends but accepts specific date range
+	 * instead of "last N days".
+	 *
+	 * @param string $start_date Start date (YYYY-MM-DD).
+	 * @param string $end_date   End date (YYYY-MM-DD).
+	 * @return array<int, array<string, mixed>>
+	 */
+	public static function get_realtime_daily_trends_for_range( string $start_date, string $end_date ): array {
+		global $wpdb;
+		$events_table = self::table_name();
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$results = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT 
+					DATE(created_at) as period,
+					SUM(CASE WHEN event_type = 'pageview' THEN 1 ELSE 0 END) as pageviews,
+					COUNT(DISTINCT session_id) as sessions,
+					SUM(CASE WHEN event_type = 'link_click' THEN 1 ELSE 0 END) as clicks,
+					SUM(CASE WHEN event_type = 'conversion' THEN 1 ELSE 0 END) as conversions
+				FROM {$events_table}
+				WHERE DATE(created_at) BETWEEN %s AND %s
+				GROUP BY DATE(created_at)
+				ORDER BY period ASC",
+				$start_date,
+				$end_date
+			),
+			ARRAY_A
+		);
+
+		return is_array( $results ) ? $results : array();
+	}
 }
