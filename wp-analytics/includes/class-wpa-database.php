@@ -2514,4 +2514,252 @@ final class WPA_Database {
 
 		return is_array( $results ) ? $results : array();
 	}
+
+	/*
+	 * =========================================================================
+	 * ALL PAGES LIST METHODS
+	 * =========================================================================
+	 */
+
+	/**
+	 * Count total unique pages for pagination.
+	 *
+	 * @param string $start_date Start date (YYYY-MM-DD).
+	 * @param string $end_date   End date (YYYY-MM-DD).
+	 * @param string $search     Optional search term.
+	 * @return int Total count.
+	 */
+	public static function count_all_pages( string $start_date, string $end_date, string $search = '' ): int {
+		global $wpdb;
+		$table = self::table_name();
+
+		$where  = "event_type = 'pageview' AND DATE(created_at) BETWEEN %s AND %s";
+		$params = array( $start_date, $end_date );
+
+		if ( $search !== '' ) {
+			$where   .= ' AND page_url LIKE %s';
+			$params[] = '%' . $wpdb->esc_like( $search ) . '%';
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$count = $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT COUNT(DISTINCT page_url) FROM {$table} WHERE {$where}",
+				$params
+			)
+		);
+
+		return (int) $count;
+	}
+
+	/**
+	 * Get all pages with pagination, search, and sorting.
+	 *
+	 * @param string $start_date Start date (YYYY-MM-DD).
+	 * @param string $end_date   End date (YYYY-MM-DD).
+	 * @param string $search     Optional search term.
+	 * @param string $orderby    Column to order by.
+	 * @param string $order      ASC or DESC.
+	 * @param int    $per_page   Items per page.
+	 * @param int    $paged      Current page number.
+	 * @return array<int, array<string, mixed>>
+	 */
+	public static function get_all_pages( string $start_date, string $end_date, string $search, string $orderby, string $order, int $per_page, int $paged ): array {
+		global $wpdb;
+		$table = self::table_name();
+
+		// Validate orderby
+		$allowed_orderby = array(
+			'page_path'         => 'page_url',
+			'pageviews'         => 'total_pageviews',
+			'sessions'          => 'total_sessions',
+			'avg_time'          => 'avg_time',
+			'avg_scroll'        => 'avg_scroll',
+			'conversions'       => 'total_conversions',
+		);
+
+		$order_column = $allowed_orderby[ $orderby ] ?? 'total_pageviews';
+		$order        = strtoupper( $order ) === 'ASC' ? 'ASC' : 'DESC';
+
+		$where  = "DATE(created_at) BETWEEN %s AND %s";
+		$params = array( $start_date, $end_date );
+
+		if ( $search !== '' ) {
+			$where   .= ' AND page_url LIKE %s';
+			$params[] = '%' . $wpdb->esc_like( $search ) . '%';
+		}
+
+		$offset   = ( $paged - 1 ) * $per_page;
+		$params[] = $per_page;
+		$params[] = $offset;
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$results = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT 
+					page_url,
+					COUNT(CASE WHEN event_type = 'pageview' THEN 1 END) as total_pageviews,
+					COUNT(DISTINCT CASE WHEN event_type = 'pageview' THEN session_id END) as total_sessions,
+					COALESCE(ROUND(AVG(CASE WHEN event_type = 'pageview' AND time_on_page > 0 THEN time_on_page END)), 0) as avg_time,
+					COALESCE(ROUND(AVG(CASE WHEN event_type = 'pageview' AND scroll_depth > 0 THEN scroll_depth END)), 0) as avg_scroll,
+					COUNT(CASE WHEN event_type = 'conversion' THEN 1 END) as total_conversions
+				FROM {$table}
+				WHERE {$where}
+				GROUP BY page_url
+				HAVING total_pageviews > 0
+				ORDER BY {$order_column} {$order}
+				LIMIT %d OFFSET %d",
+				$params
+			),
+			ARRAY_A
+		);
+
+		if ( ! is_array( $results ) ) {
+			return array();
+		}
+
+		// Convert page_url to page_path
+		foreach ( $results as &$row ) {
+			$row['page_path'] = self::extract_path( $row['page_url'] ?? '' );
+			unset( $row['page_url'] );
+		}
+
+		return $results;
+	}
+
+	/*
+	 * =========================================================================
+	 * SESSIONS LIST METHODS
+	 * =========================================================================
+	 */
+
+	/**
+	 * Count sessions with filters for pagination.
+	 *
+	 * @param string $start_date  Start date (YYYY-MM-DD).
+	 * @param string $end_date    End date (YYYY-MM-DD).
+	 * @param string $search      Optional search term (IP, session ID, or page URL).
+	 * @param string $filter_type Filter type: '', 'conversions', 'multipage', 'bounced'.
+	 * @return int Total count.
+	 */
+	public static function count_sessions( string $start_date, string $end_date, string $search = '', string $filter_type = '' ): int {
+		global $wpdb;
+		$table = self::table_name();
+
+		// Build the base query to get session aggregates
+		$having = '';
+		switch ( $filter_type ) {
+			case 'conversions':
+				$having = 'HAVING conversions > 0';
+				break;
+			case 'multipage':
+				$having = 'HAVING pages_viewed > 1';
+				break;
+			case 'bounced':
+				$having = 'HAVING pages_viewed = 1';
+				break;
+		}
+
+		$where  = "session_id IS NOT NULL AND session_id != '' AND DATE(created_at) BETWEEN %s AND %s";
+		$params = array( $start_date, $end_date );
+
+		if ( $search !== '' ) {
+			$like     = '%' . $wpdb->esc_like( $search ) . '%';
+			$where   .= ' AND (session_id LIKE %s OR ip_address LIKE %s OR page_url LIKE %s)';
+			$params[] = $like;
+			$params[] = $like;
+			$params[] = $like;
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$count = $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT COUNT(*) FROM (
+					SELECT 
+						session_id,
+						COUNT(CASE WHEN event_type = 'pageview' THEN 1 END) as pages_viewed,
+						COUNT(CASE WHEN event_type = 'conversion' THEN 1 END) as conversions
+					FROM {$table}
+					WHERE {$where}
+					GROUP BY session_id
+					{$having}
+				) AS filtered_sessions",
+				$params
+			)
+		);
+
+		return (int) $count;
+	}
+
+	/**
+	 * Get sessions with filters, search, and pagination.
+	 *
+	 * @param string $start_date  Start date (YYYY-MM-DD).
+	 * @param string $end_date    End date (YYYY-MM-DD).
+	 * @param string $search      Optional search term.
+	 * @param string $filter_type Filter type.
+	 * @param int    $per_page    Items per page.
+	 * @param int    $paged       Current page number.
+	 * @return array<int, array<string, mixed>>
+	 */
+	public static function get_sessions_paginated( string $start_date, string $end_date, string $search, string $filter_type, int $per_page, int $paged ): array {
+		global $wpdb;
+		$table = self::table_name();
+
+		// Build the having clause based on filter
+		$having = '';
+		switch ( $filter_type ) {
+			case 'conversions':
+				$having = 'HAVING conversions > 0';
+				break;
+			case 'multipage':
+				$having = 'HAVING pages_viewed > 1';
+				break;
+			case 'bounced':
+				$having = 'HAVING pages_viewed = 1';
+				break;
+		}
+
+		$where  = "session_id IS NOT NULL AND session_id != '' AND DATE(created_at) BETWEEN %s AND %s";
+		$params = array( $start_date, $end_date );
+
+		if ( $search !== '' ) {
+			$like     = '%' . $wpdb->esc_like( $search ) . '%';
+			$where   .= ' AND (session_id LIKE %s OR ip_address LIKE %s OR page_url LIKE %s)';
+			$params[] = $like;
+			$params[] = $like;
+			$params[] = $like;
+		}
+
+		$offset   = ( $paged - 1 ) * $per_page;
+		$params[] = $per_page;
+		$params[] = $offset;
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$results = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT 
+					session_id,
+					MIN(created_at) as session_start,
+					MAX(created_at) as session_end,
+					COUNT(CASE WHEN event_type = 'pageview' THEN 1 END) as pages_viewed,
+					COUNT(CASE WHEN event_type = 'conversion' THEN 1 END) as conversions,
+					MAX(ip_address) as ip_address,
+					(SELECT page_url FROM {$table} t2 
+					 WHERE t2.session_id = {$table}.session_id 
+					 AND t2.event_type = 'pageview'
+					 ORDER BY t2.created_at ASC LIMIT 1) as entry_page
+				FROM {$table}
+				WHERE {$where}
+				GROUP BY session_id
+				{$having}
+				ORDER BY session_start DESC
+				LIMIT %d OFFSET %d",
+				$params
+			),
+			ARRAY_A
+		);
+
+		return is_array( $results ) ? $results : array();
+	}
 }
