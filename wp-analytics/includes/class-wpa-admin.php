@@ -287,11 +287,12 @@ final class WPA_Admin {
 		$table   = new WPA_List_Table( $filters );
 		$table->prepare_items();
 
-		// Build export URLs
-		$base_url    = menu_page_url( self::MENU_SLUG, false );
+		// Build export URLs - use events page slug
+		$events_slug = self::MENU_SLUG . '-events';
+		$base_url    = menu_page_url( $events_slug, false );
 		$export_args = array_filter(
 			array(
-				'page'       => self::MENU_SLUG,
+				'page'       => $events_slug,
 				'event_type' => $filters['event_type'],
 				'date_from'  => $filters['date_from'],
 				'date_to'    => $filters['date_to'],
@@ -318,7 +319,7 @@ final class WPA_Admin {
 
 			<!-- Filter Form -->
 			<form method="get" action="<?php echo esc_url( $base_url ); ?>">
-				<input type="hidden" name="page" value="<?php echo esc_attr( self::MENU_SLUG ); ?>" />
+				<input type="hidden" name="page" value="<?php echo esc_attr( $events_slug ); ?>" />
 
 				<fieldset class="wpa-filters" aria-label="<?php echo esc_attr__( 'Analytics filters', 'wp-analytics' ); ?>">
 					<!-- Event Type Filter -->
@@ -376,7 +377,7 @@ final class WPA_Admin {
 			</div>
 
 			<!-- Data Table with Bulk Actions -->
-			<form method="post" action="<?php echo esc_url( admin_url( 'admin.php?page=' . self::MENU_SLUG ) ); ?>">
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin.php?page=' . $events_slug ) ); ?>">
 				<?php wp_nonce_field( 'wpa_bulk_action', 'wpa_bulk_nonce' ); ?>
 				<input type="hidden" name="wpa_bulk_action" value="1" />
 				<?php $table->display(); ?>
@@ -477,7 +478,7 @@ final class WPA_Admin {
 						30
 					);
 				}
-				wp_safe_redirect( admin_url( 'admin.php?page=' . self::MENU_SLUG ) );
+				wp_safe_redirect( admin_url( 'admin.php?page=' . self::MENU_SLUG . '-events' ) );
 				exit;
 			}
 		}
@@ -523,7 +524,7 @@ final class WPA_Admin {
 					);
 				}
 
-				wp_safe_redirect( admin_url( 'admin.php?page=' . self::MENU_SLUG ) );
+				wp_safe_redirect( admin_url( 'admin.php?page=' . self::MENU_SLUG . '-events' ) );
 				exit;
 			}
 		}
@@ -553,7 +554,7 @@ final class WPA_Admin {
 				),
 				30
 			);
-			wp_safe_redirect( admin_url( 'admin.php?page=' . self::MENU_SLUG ) );
+			wp_safe_redirect( admin_url( 'admin.php?page=' . self::MENU_SLUG . '-events' ) );
 			exit;
 		}
 
@@ -583,7 +584,7 @@ final class WPA_Admin {
 			);
 		}
 
-		wp_safe_redirect( admin_url( 'admin.php?page=' . self::MENU_SLUG ) );
+		wp_safe_redirect( admin_url( 'admin.php?page=' . self::MENU_SLUG . '-events' ) );
 		exit;
 	}
 
@@ -608,7 +609,7 @@ final class WPA_Admin {
 				),
 				30
 			);
-			wp_safe_redirect( admin_url( 'admin.php?page=' . self::MENU_SLUG ) );
+			wp_safe_redirect( admin_url( 'admin.php?page=' . self::MENU_SLUG . '-events' ) );
 			exit;
 		}
 
@@ -627,7 +628,7 @@ final class WPA_Admin {
 			30
 		);
 
-		wp_safe_redirect( admin_url( 'admin.php?page=' . self::MENU_SLUG ) );
+		wp_safe_redirect( admin_url( 'admin.php?page=' . self::MENU_SLUG . '-events' ) );
 		exit;
 	}
 

@@ -130,7 +130,7 @@ final class WPA_Analytics {
 				<div class="wpa-stat-card">
 					<div class="wpa-stat-icon dashicons dashicons-visibility"></div>
 					<div class="wpa-stat-content">
-						<span class="wpa-stat-number"><?php echo esc_html( number_format_i18n( $summary['total_pageviews'] ) ); ?></span>
+						<span class="wpa-stat-number"><?php echo esc_html( number_format_i18n( (int) ( $summary['total_pageviews'] ?? 0 ) ) ); ?></span>
 						<span class="wpa-stat-label"><?php echo esc_html__( 'Pageviews', 'wp-analytics' ); ?></span>
 					</div>
 				</div>
@@ -138,7 +138,7 @@ final class WPA_Analytics {
 				<div class="wpa-stat-card">
 					<div class="wpa-stat-icon dashicons dashicons-groups"></div>
 					<div class="wpa-stat-content">
-						<span class="wpa-stat-number"><?php echo esc_html( number_format_i18n( $summary['total_sessions'] ) ); ?></span>
+						<span class="wpa-stat-number"><?php echo esc_html( number_format_i18n( (int) ( $summary['total_sessions'] ?? 0 ) ) ); ?></span>
 						<span class="wpa-stat-label"><?php echo esc_html__( 'Sessions', 'wp-analytics' ); ?></span>
 					</div>
 				</div>
@@ -146,15 +146,23 @@ final class WPA_Analytics {
 				<div class="wpa-stat-card">
 					<div class="wpa-stat-icon dashicons dashicons-clock"></div>
 					<div class="wpa-stat-content">
-						<span class="wpa-stat-number"><?php echo esc_html( self::format_duration( $summary['avg_time'] ) ); ?></span>
+						<span class="wpa-stat-number"><?php echo esc_html( self::format_duration( (int) ( $summary['avg_time'] ?? 0 ) ) ); ?></span>
 						<span class="wpa-stat-label"><?php echo esc_html__( 'Avg. Time on Page', 'wp-analytics' ); ?></span>
+					</div>
+				</div>
+
+				<div class="wpa-stat-card">
+					<div class="wpa-stat-icon dashicons dashicons-arrow-down-alt"></div>
+					<div class="wpa-stat-content">
+						<span class="wpa-stat-number"><?php echo esc_html( (int) ( $summary['avg_scroll'] ?? 0 ) . '%' ); ?></span>
+						<span class="wpa-stat-label"><?php echo esc_html__( 'Avg. Scroll Depth', 'wp-analytics' ); ?></span>
 					</div>
 				</div>
 
 				<div class="wpa-stat-card">
 					<div class="wpa-stat-icon dashicons dashicons-flag"></div>
 					<div class="wpa-stat-content">
-						<span class="wpa-stat-number"><?php echo esc_html( number_format_i18n( $summary['total_conversions'] ) ); ?></span>
+						<span class="wpa-stat-number"><?php echo esc_html( number_format_i18n( (int) ( $summary['total_conversions'] ?? 0 ) ) ); ?></span>
 						<span class="wpa-stat-label"><?php echo esc_html__( 'Conversions', 'wp-analytics' ); ?></span>
 					</div>
 				</div>
