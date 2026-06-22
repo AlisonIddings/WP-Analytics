@@ -1646,12 +1646,12 @@ final class WPA_Database {
 			$wpdb->prepare(
 				"SELECT 
 					page_path,
-					SUM(pageviews) as total_pageviews,
-					SUM(unique_sessions) as total_sessions,
-					ROUND(AVG(avg_time_on_page)) as avg_time,
-					ROUND(AVG(avg_scroll_depth)) as avg_scroll,
-					SUM(link_clicks) as total_clicks,
-					SUM(conversions) as total_conversions
+					COALESCE(SUM(pageviews), 0) as total_pageviews,
+					COALESCE(SUM(unique_sessions), 0) as total_sessions,
+					COALESCE(ROUND(AVG(avg_time_on_page)), 0) as avg_time,
+					COALESCE(ROUND(AVG(avg_scroll_depth)), 0) as avg_scroll,
+					COALESCE(SUM(link_clicks), 0) as total_clicks,
+					COALESCE(SUM(conversions), 0) as total_conversions
 				FROM {$stats_table}
 				WHERE stat_date BETWEEN %s AND %s
 				GROUP BY page_path
@@ -1865,8 +1865,8 @@ final class WPA_Database {
 					page_url,
 					COUNT(*) as total_pageviews,
 					COUNT(DISTINCT session_id) as total_sessions,
-					ROUND(AVG(NULLIF(time_on_page, 0))) as avg_time,
-					ROUND(AVG(NULLIF(scroll_depth, 0))) as avg_scroll,
+					COALESCE(ROUND(AVG(CASE WHEN time_on_page > 0 THEN time_on_page ELSE NULL END)), 0) as avg_time,
+					COALESCE(ROUND(AVG(CASE WHEN scroll_depth > 0 THEN scroll_depth ELSE NULL END)), 0) as avg_scroll,
 					0 as total_conversions
 				FROM {$events_table}
 				WHERE event_type = 'pageview'
