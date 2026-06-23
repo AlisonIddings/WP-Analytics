@@ -697,6 +697,49 @@ final class WPA_Admin {
 				<?php wp_nonce_field( 'wpa_save_settings', 'wpa_settings_nonce' ); ?>
 				<input type="hidden" name="action" value="wpa_save_settings" />
 
+				<h2><?php echo esc_html__( 'API Access', 'wp-analytics' ); ?></h2>
+				<table class="form-table" role="presentation">
+					<tr>
+						<th scope="row">
+							<label><?php echo esc_html__( 'API Token', 'wp-analytics' ); ?></label>
+						</th>
+						<td>
+							<input 
+								type="text" 
+								id="wpa-api-token" 
+								value="<?php echo esc_attr( WPA_Database::get_public_token() ); ?>" 
+								readonly 
+								class="regular-text code" 
+								style="background: #f6f7f7;"
+							/>
+							<button type="button" class="button button-small" onclick="navigator.clipboard.writeText(document.getElementById('wpa-api-token').value); this.textContent='Copied!'; setTimeout(() => this.textContent='Copy', 2000);">
+								<?php echo esc_html__( 'Copy', 'wp-analytics' ); ?>
+							</button>
+							<p class="description"><?php echo esc_html__( 'Used to authenticate audit export requests. Keep this private.', 'wp-analytics' ); ?></p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row">
+							<label><?php echo esc_html__( 'Audit Export URL', 'wp-analytics' ); ?></label>
+						</th>
+						<td>
+							<?php $audit_url = rest_url( 'wp-analytics/v1/audit-export' ) . '?token=' . WPA_Database::get_public_token(); ?>
+							<input 
+								type="text" 
+								id="wpa-audit-url" 
+								value="<?php echo esc_attr( $audit_url ); ?>" 
+								readonly 
+								class="large-text code" 
+								style="background: #f6f7f7;"
+							/>
+							<button type="button" class="button button-small" onclick="navigator.clipboard.writeText(document.getElementById('wpa-audit-url').value); this.textContent='Copied!'; setTimeout(() => this.textContent='Copy', 2000);">
+								<?php echo esc_html__( 'Copy', 'wp-analytics' ); ?>
+							</button>
+							<p class="description"><?php echo esc_html__( 'Append &month=YYYY-MM to query a specific month, e.g. &month=2026-05. Defaults to previous complete month.', 'wp-analytics' ); ?></p>
+						</td>
+					</tr>
+				</table>
+
 				<!-- Tracking Settings Section -->
 				<h2><?php echo esc_html__( 'Tracking Settings', 'wp-analytics' ); ?></h2>
 
