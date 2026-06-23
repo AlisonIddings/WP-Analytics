@@ -26,6 +26,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * - POST /wp-analytics/v1/link-click - Record a link click
  * - POST /wp-analytics/v1/conversion - Record a conversion event
  * - GET  /wp-analytics/v1/audit-export - Export monthly analytics report
+ * - GET  /wp-analytics/v1/gsc-test - Test Google Search Console connection
  *
  * @since 1.0.0
  */
@@ -216,6 +217,23 @@ final class WPA_REST_API {
 					'month' => array(
 						'type'     => 'string',
 						'required' => false,
+					),
+				),
+			)
+		);
+
+		// GSC connection test endpoint
+		register_rest_route(
+			self::NAMESPACE,
+			'/gsc-test',
+			array(
+				'methods'             => 'GET',
+				'callback'            => array( __CLASS__, 'handle_gsc_test' ),
+				'permission_callback' => '__return_true',
+				'args'                => array(
+					'token' => array(
+						'type'     => 'string',
+						'required' => true,
 					),
 				),
 			)
@@ -675,6 +693,16 @@ final class WPA_REST_API {
 		$top_outbound_links   = WPA_Database::get_top_outbound_links( $start_date, $end_date, 10 );
 		$conversions_by_goal  = WPA_Database::get_conversions_by_goal( $start_date, $end_date );
 
+		// Fetch GSC and PageSpeed data
+		require_once WPA_PLUGIN_DIR . 'includes/class-wpa-gsc.php';
+		$gsc_data  = WPA_GSC::get_gsc_data( $start_date, $end_date );
+		$pagespeed = WPA_GSC::get_pagespeed_data( home_url() );
+
+		// Remove error key from GSC data if present (don't expose internal errors)
+		if ( isset( $gsc_data['error'] ) ) {
+			$gsc_data = array();
+		}
+
 		// Calculate conversion rate
 		$total_sessions    = (int) $summary['total_sessions'];
 		$total_conversions = (int) $summary['total_conversions'];
@@ -700,6 +728,8 @@ final class WPA_REST_API {
 			'top_entry_pages'      => $top_entry_pages,
 			'top_outbound_links'   => $top_outbound_links,
 			'conversions_by_goal'  => $conversions_by_goal,
+			'gsc'                  => $gsc_data,
+			'pagespeed'            => $pagespeed,
 		);
 
 		return new WP_REST_Response( $response, 200 );
@@ -1166,5 +1196,58 @@ final class WPA_REST_API {
 		}
 
 		return $ip;
+	}
+
+	/**
+	 * Handle GSC connection test request.
+	 *
+	 * Tests the GSC API connection using stored credentials.
+	 *
+	 * @param WP_REST_Request $request The incoming request.
+	 * @return WP_REST_Response|WP_Error Response or error.
+	 */
+	public static function handle_gsc_test( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		// Validate token
+		$valid = self::validate_export_token( $request );
+		if ( is_wp_error( $valid ) ) {
+			return $valid;
+		}
+
+		// Load GSC class
+		require_once WPA_PLUGIN_DIR . 'includes/class-wpa-gsc.php';
+
+		// Test with last 7 days
+		$end_date   = gmdate( 'Y-m-d' );
+		$start_date = gmdate( 'Y-m-d', strtotime( '-7 days' ) );
+
+		$gsc_data = WPA_GSC::get_gsc_data( $start_date, $end_date );
+
+		// Check for error or empty result
+		if ( empty( $gsc_data ) ) {
+			return new WP_Error(
+				'wpa_gsc_not_configured',
+				__( 'GSC credentials are not configured. Please enter your property URL, client ID, client secret, and refresh token.', 'wp-analytics' ),
+				array( 'status' => 400 )
+			);
+		}
+
+		if ( isset( $gsc_data['error'] ) ) {
+			return new WP_Error(
+				'wpa_gsc_auth_failed',
+				__( 'GSC authentication failed. Please verify your client credentials and refresh token are correct.', 'wp-analytics' ),
+				array( 'status' => 400 )
+			);
+		}
+
+		// Return success with basic stats (never include credentials)
+		return new WP_REST_Response(
+			array(
+				'success'       => true,
+				'property_url'  => $gsc_data['property_url'] ?? '',
+				'queries_found' => count( $gsc_data['top_queries'] ?? array() ),
+				'pages_found'   => count( $gsc_data['top_pages_gsc'] ?? array() ),
+			),
+			200
+		);
 	}
 }

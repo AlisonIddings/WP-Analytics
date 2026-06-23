@@ -74,6 +74,18 @@ final class WPA_Database {
 	/** @var string Option key for excluded IP addresses */
 	private const OPTION_EXCLUDED_IPS = 'wpa_excluded_ips';
 
+	/** @var string Option key for GSC property URL */
+	private const OPTION_GSC_PROPERTY_URL = 'wpa_gsc_property_url';
+
+	/** @var string Option key for GSC OAuth client ID */
+	private const OPTION_GSC_CLIENT_ID = 'wpa_gsc_client_id';
+
+	/** @var string Option key for GSC OAuth client secret */
+	private const OPTION_GSC_CLIENT_SECRET = 'wpa_gsc_client_secret';
+
+	/** @var string Option key for GSC OAuth refresh token */
+	private const OPTION_GSC_REFRESH_TOKEN = 'wpa_gsc_refresh_token';
+
 	/** @var string Current database schema version */
 	private const DB_VERSION = '1.2.1';
 
@@ -160,6 +172,10 @@ final class WPA_Database {
 		delete_option( self::OPTION_CONVERSION_BUTTONS );
 		delete_option( self::OPTION_CONVERSION_URLS );
 		delete_option( self::OPTION_EXCLUDED_IPS );
+		delete_option( self::OPTION_GSC_PROPERTY_URL );
+		delete_option( self::OPTION_GSC_CLIENT_ID );
+		delete_option( self::OPTION_GSC_CLIENT_SECRET );
+		delete_option( self::OPTION_GSC_REFRESH_TOKEN );
 	}
 
 	/*
@@ -1088,6 +1104,47 @@ final class WPA_Database {
 		}
 
 		return false;
+	}
+
+	/*
+	 * =========================================================================
+	 * GOOGLE SEARCH CONSOLE CREDENTIALS
+	 * =========================================================================
+	 */
+
+	/**
+	 * Get Google Search Console API credentials.
+	 *
+	 * @return array{property_url: string, client_id: string, client_secret: string, refresh_token: string}
+	 */
+	public static function get_gsc_credentials(): array {
+		return array(
+			'property_url'  => (string) get_option( self::OPTION_GSC_PROPERTY_URL, '' ),
+			'client_id'     => (string) get_option( self::OPTION_GSC_CLIENT_ID, '' ),
+			'client_secret' => (string) get_option( self::OPTION_GSC_CLIENT_SECRET, '' ),
+			'refresh_token' => (string) get_option( self::OPTION_GSC_REFRESH_TOKEN, '' ),
+		);
+	}
+
+	/**
+	 * Set Google Search Console API credentials.
+	 *
+	 * @param array<string, string> $credentials Array with keys: property_url, client_id, client_secret, refresh_token.
+	 * @return void
+	 */
+	public static function set_gsc_credentials( array $credentials ): void {
+		if ( isset( $credentials['property_url'] ) ) {
+			update_option( self::OPTION_GSC_PROPERTY_URL, sanitize_text_field( $credentials['property_url'] ) );
+		}
+		if ( isset( $credentials['client_id'] ) ) {
+			update_option( self::OPTION_GSC_CLIENT_ID, sanitize_text_field( $credentials['client_id'] ) );
+		}
+		if ( isset( $credentials['client_secret'] ) ) {
+			update_option( self::OPTION_GSC_CLIENT_SECRET, sanitize_text_field( $credentials['client_secret'] ) );
+		}
+		if ( isset( $credentials['refresh_token'] ) ) {
+			update_option( self::OPTION_GSC_REFRESH_TOKEN, sanitize_text_field( $credentials['refresh_token'] ) );
+		}
 	}
 
 	/*
