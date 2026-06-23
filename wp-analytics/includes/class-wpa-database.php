@@ -2243,7 +2243,8 @@ final class WPA_Database {
 		global $wpdb;
 		$table = self::table_name();
 
-		// Find the first pageview for each session, then count by page
+		// Get first pageview URL per session, then aggregate in PHP to avoid
+		// duplicate page_paths caused by URL variations (http/https, trailing slashes, etc.)
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$results = $wpdb->get_results(
 			$wpdb->prepare(
@@ -2263,11 +2264,9 @@ final class WPA_Database {
 				) AS first_pages
 				WHERE rn = 1
 				GROUP BY page_url
-				ORDER BY entries DESC
-				LIMIT %d",
+				ORDER BY entries DESC",
 				$start_date,
-				$end_date,
-				$limit
+				$end_date
 			),
 			ARRAY_A
 		);
@@ -2276,11 +2275,22 @@ final class WPA_Database {
 			return array();
 		}
 
-		$formatted = array();
+		// Aggregate by page_path in PHP to merge URL variations
+		$path_counts = array();
 		foreach ( $results as $row ) {
+			$path = self::extract_path( $row['page_url'] ?? '' );
+			$path_counts[ $path ] = ( $path_counts[ $path ] ?? 0 ) + (int) ( $row['entries'] ?? 0 );
+		}
+
+		// Sort by entries descending
+		arsort( $path_counts );
+
+		// Format and limit
+		$formatted = array();
+		foreach ( array_slice( $path_counts, 0, $limit, true ) as $path => $count ) {
 			$formatted[] = array(
-				'page_path' => self::extract_path( $row['page_url'] ?? '' ),
-				'entries'   => (int) ( $row['entries'] ?? 0 ),
+				'page_path' => $path,
+				'entries'   => $count,
 			);
 		}
 
