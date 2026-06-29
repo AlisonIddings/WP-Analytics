@@ -168,7 +168,7 @@ final class WPA_REST_API {
 			)
 		);
 
-		// Conversion endpoint - records button clicks for conversion tracking
+		// Conversion endpoint - records button clicks and URL-based conversions
 		register_rest_route(
 			self::NAMESPACE,
 			'/conversion',
@@ -177,29 +177,37 @@ final class WPA_REST_API {
 				'callback'            => array( __CLASS__, 'handle_conversion' ),
 				'permission_callback' => '__return_true',
 				'args'                => array(
-					'token'       => array(
+					'token'            => array(
 						'type'     => 'string',
 						'required' => true,
 					),
-					'pageview_id' => array(
+					'pageview_id'      => array(
 						'type'     => 'integer',
 						'required' => true,
 					),
-					'button_id'   => array(
+					'button_id'        => array(
+						'type'     => 'string',
+						'required' => false,
+					),
+					'conversion_type'  => array(
+						'type'     => 'string',
+						'required' => false,
+					),
+					'conversion_value' => array(
+						'type'     => 'string',
+						'required' => false,
+					),
+					'page_url'         => array(
 						'type'     => 'string',
 						'required' => true,
 					),
-					'page_url'    => array(
+					'session'          => array(
 						'type'     => 'string',
 						'required' => true,
 					),
-				'session'     => array(
-					'type'     => 'string',
-					'required' => true,
 				),
-			),
-		)
-	);
+			)
+		);
 
 		// Audit export endpoint - returns JSON analytics report for a month
 		register_rest_route(
