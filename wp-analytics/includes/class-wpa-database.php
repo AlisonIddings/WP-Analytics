@@ -47,6 +47,9 @@ final class WPA_Database {
 	/** @var string Option key for public API token */
 	private const OPTION_TOKEN = 'wpa_public_token';
 
+	/** @var string Option key for secret export API token */
+	private const OPTION_EXPORT_TOKEN = 'wpa_export_token';
+
 	/** @var string Option key for IP anonymization setting */
 	private const OPTION_ANONYMIZE_IP = 'wpa_anonymize_ip';
 
@@ -163,6 +166,7 @@ final class WPA_Database {
 		// Remove all plugin options
 		delete_option( self::OPTION_DB_VERSION );
 		delete_option( self::OPTION_TOKEN );
+		delete_option( self::OPTION_EXPORT_TOKEN );
 		delete_option( self::OPTION_ANONYMIZE_IP );
 		delete_option( self::OPTION_DATA_RETENTION );
 		delete_option( self::OPTION_TRACKING_MODE );
@@ -201,6 +205,36 @@ final class WPA_Database {
 		$token                 = get_option( self::OPTION_TOKEN, '' );
 		$token                 = is_string( $token ) ? $token : '';
 		self::$cache['token'] = $token;
+
+		return $token;
+	}
+
+	/**
+	 * Get the secret export API token used for audit export requests.
+	 *
+	 * This token is intentionally separate from the public tracking token,
+	 * which is embedded in the HTML of every page and readable by any
+	 * visitor. The export token grants read access to analytics data and
+	 * is only ever displayed in the admin settings page.
+	 *
+	 * Generated on first use if it does not exist.
+	 *
+	 * @return string The secret export token (40 alphanumeric characters)
+	 */
+	public static function get_export_token(): string {
+		if ( isset( self::$cache['export_token'] ) ) {
+			return self::$cache['export_token'];
+		}
+
+		$token = get_option( self::OPTION_EXPORT_TOKEN, '' );
+		$token = is_string( $token ) ? $token : '';
+
+		if ( $token === '' ) {
+			$token = wp_generate_password( 40, false, false );
+			update_option( self::OPTION_EXPORT_TOKEN, $token, false );
+		}
+
+		self::$cache['export_token'] = $token;
 
 		return $token;
 	}

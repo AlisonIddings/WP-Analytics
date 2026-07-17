@@ -744,17 +744,38 @@ final class WPA_REST_API {
 	}
 
 	/**
-	 * Validate token for export endpoint (GET request).
+	 * Validate token for export endpoints (GET requests).
 	 *
-	 * Simplified validation for read-only export - only checks token.
-	 * No Content-Type, same-origin, or rate limiting checks needed.
+	 * Uses the secret export token, NOT the public tracking token.
+	 * The public token is embedded in every page's HTML and readable by
+	 * any visitor, so it must never grant access to analytics data.
+	 *
+	 * Also applies rate limiting to prevent brute-force token guessing
+	 * and abuse of expensive export operations.
 	 *
 	 * @param WP_REST_Request $request The incoming request.
 	 * @return true|WP_Error True if valid, WP_Error otherwise.
 	 */
 	private static function validate_export_token( WP_REST_Request $request ): true|WP_Error {
+		// Rate limit export endpoints (10 requests per minute per IP)
+		$ip = self::get_client_ip_raw();
+		if ( $ip !== '' ) {
+			$key   = 'wpa_export_rate_' . md5( $ip );
+			$count = (int) get_transient( $key );
+
+			if ( $count >= 10 ) {
+				return new WP_Error(
+					'wpa_rate_limited',
+					__( 'Too many requests. Please try again later.', 'wp-analytics' ),
+					array( 'status' => 429 )
+				);
+			}
+
+			set_transient( $key, $count + 1, MINUTE_IN_SECONDS );
+		}
+
 		$token        = (string) $request->get_param( 'token' );
-		$stored_token = WPA_Database::get_public_token();
+		$stored_token = WPA_Database::get_export_token();
 
 		if ( $stored_token === '' || $token === '' || ! hash_equals( $stored_token, $token ) ) {
 			return new WP_Error(

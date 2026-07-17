@@ -5,7 +5,7 @@ Tags: analytics, pageviews, engagement, statistics, tracking, conversions
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.3.0
+Stable tag: 1.3.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -110,6 +110,14 @@ By default, users with the `edit_pages` capability (Editors and above) can view 
 4. Mobile-responsive data table
 
 == Changelog ==
+
+= 1.3.1 =
+* **Security**: Audit export and GSC test endpoints now use a separate secret export token instead of the public tracking token (which is visible in page source to all visitors)
+* **Security**: Added rate limiting to export endpoints (10 requests/minute per IP)
+* **Security**: GSC client secret and refresh token are no longer echoed back into the settings page HTML
+* **Security**: CSV exports now escape values that spreadsheet apps would interpret as formulas
+* Fixed conversion tracking reliability (requests now survive page navigation)
+* Fixed PageSpeed Insights API integration and added 12-hour result caching
 
 = 1.2.1 =
 * **New IP exclusion feature** - Exclude your own IP from being tracked

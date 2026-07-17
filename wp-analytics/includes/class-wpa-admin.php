@@ -701,13 +701,13 @@ final class WPA_Admin {
 				<table class="form-table" role="presentation">
 					<tr>
 						<th scope="row">
-							<label><?php echo esc_html__( 'API Token', 'wp-analytics' ); ?></label>
+							<label><?php echo esc_html__( 'Export API Token', 'wp-analytics' ); ?></label>
 						</th>
 						<td>
 							<input 
 								type="text" 
 								id="wpa-api-token" 
-								value="<?php echo esc_attr( WPA_Database::get_public_token() ); ?>" 
+								value="<?php echo esc_attr( WPA_Database::get_export_token() ); ?>" 
 								readonly 
 								class="regular-text code" 
 								style="background: #f6f7f7;"
@@ -715,7 +715,7 @@ final class WPA_Admin {
 							<button type="button" class="button button-small" onclick="navigator.clipboard.writeText(document.getElementById('wpa-api-token').value); this.textContent='Copied!'; setTimeout(() => this.textContent='Copy', 2000);">
 								<?php echo esc_html__( 'Copy', 'wp-analytics' ); ?>
 							</button>
-							<p class="description"><?php echo esc_html__( 'Used to authenticate audit export requests. Keep this private.', 'wp-analytics' ); ?></p>
+							<p class="description"><?php echo esc_html__( 'Secret token that authenticates audit export requests. Keep this private - it grants read access to your analytics data. It is separate from the public tracking token used by the frontend script.', 'wp-analytics' ); ?></p>
 						</td>
 					</tr>
 					<tr>
@@ -723,7 +723,7 @@ final class WPA_Admin {
 							<label><?php echo esc_html__( 'Audit Export URL', 'wp-analytics' ); ?></label>
 						</th>
 						<td>
-							<?php $audit_url = rest_url( 'wp-analytics/v1/audit-export' ) . '?token=' . WPA_Database::get_public_token(); ?>
+							<?php $audit_url = rest_url( 'wp-analytics/v1/audit-export' ) . '?token=' . WPA_Database::get_export_token(); ?>
 							<input 
 								type="text" 
 								id="wpa-audit-url" 
@@ -962,9 +962,10 @@ final class WPA_Admin {
 								type="password"
 								name="gsc_client_secret"
 								id="gsc_client_secret"
-								value="<?php echo esc_attr( $gsc_credentials['client_secret'] ); ?>"
+								value=""
 								class="regular-text"
 								autocomplete="off"
+								placeholder="<?php echo $gsc_credentials['client_secret'] !== '' ? esc_attr__( 'Saved - leave blank to keep current value', 'wp-analytics' ) : ''; ?>"
 							/>
 						</td>
 					</tr>
@@ -977,12 +978,13 @@ final class WPA_Admin {
 								type="password"
 								name="gsc_refresh_token"
 								id="gsc_refresh_token"
-								value="<?php echo esc_attr( $gsc_credentials['refresh_token'] ); ?>"
+								value=""
 								class="regular-text"
 								autocomplete="off"
+								placeholder="<?php echo $gsc_credentials['refresh_token'] !== '' ? esc_attr__( 'Saved - leave blank to keep current value', 'wp-analytics' ) : ''; ?>"
 							/>
 							<p class="description">
-								<?php echo esc_html__( 'Get this from Google OAuth Playground using your client credentials and the webmasters.readonly scope.', 'wp-analytics' ); ?>
+								<?php echo esc_html__( 'Get this from Google OAuth Playground using your client credentials and the webmasters.readonly scope. Saved secrets are never displayed; submit a new value to replace, or leave blank to keep.', 'wp-analytics' ); ?>
 							</p>
 						</td>
 					</tr>
@@ -1076,15 +1078,25 @@ final class WPA_Admin {
 		$retention_days = isset( $_POST['retention_days'] ) ? absint( $_POST['retention_days'] ) : 90;
 		WPA_Database::set_data_retention_days( $retention_days );
 
-		// Save GSC credentials
-		WPA_Database::set_gsc_credentials(
-			array(
-				'property_url'  => isset( $_POST['gsc_property_url'] ) ? sanitize_text_field( wp_unslash( $_POST['gsc_property_url'] ) ) : '',
-				'client_id'     => isset( $_POST['gsc_client_id'] ) ? sanitize_text_field( wp_unslash( $_POST['gsc_client_id'] ) ) : '',
-				'client_secret' => isset( $_POST['gsc_client_secret'] ) ? sanitize_text_field( wp_unslash( $_POST['gsc_client_secret'] ) ) : '',
-				'refresh_token' => isset( $_POST['gsc_refresh_token'] ) ? sanitize_text_field( wp_unslash( $_POST['gsc_refresh_token'] ) ) : '',
-			)
+		// Save GSC credentials. Secrets are only updated when a new value is
+		// submitted (empty means "keep current") because the form never
+		// echoes saved secrets back into the page.
+		$gsc_credentials = array(
+			'property_url' => isset( $_POST['gsc_property_url'] ) ? sanitize_text_field( wp_unslash( $_POST['gsc_property_url'] ) ) : '',
+			'client_id'    => isset( $_POST['gsc_client_id'] ) ? sanitize_text_field( wp_unslash( $_POST['gsc_client_id'] ) ) : '',
 		);
+
+		$gsc_client_secret = isset( $_POST['gsc_client_secret'] ) ? sanitize_text_field( wp_unslash( $_POST['gsc_client_secret'] ) ) : '';
+		if ( $gsc_client_secret !== '' ) {
+			$gsc_credentials['client_secret'] = $gsc_client_secret;
+		}
+
+		$gsc_refresh_token = isset( $_POST['gsc_refresh_token'] ) ? sanitize_text_field( wp_unslash( $_POST['gsc_refresh_token'] ) ) : '';
+		if ( $gsc_refresh_token !== '' ) {
+			$gsc_credentials['refresh_token'] = $gsc_refresh_token;
+		}
+
+		WPA_Database::set_gsc_credentials( $gsc_credentials );
 
 		set_transient(
 			'wpa_admin_notice',
@@ -1244,12 +1256,12 @@ final class WPA_Admin {
 				fputcsv(
 					$out,
 					array(
-						(string) ( $row['created_at'] ?? '' ),
-						(string) ( $row['event_type'] ?? '' ),
-						(string) ( $row['page_url'] ?? '' ),
-						(string) ( $row['referrer_url'] ?? '' ),
-						(string) ( $row['link_url'] ?? '' ),
-						(string) ( $row['ip_address'] ?? '' ),
+						self::escape_csv_field( (string) ( $row['created_at'] ?? '' ) ),
+						self::escape_csv_field( (string) ( $row['event_type'] ?? '' ) ),
+						self::escape_csv_field( (string) ( $row['page_url'] ?? '' ) ),
+						self::escape_csv_field( (string) ( $row['referrer_url'] ?? '' ) ),
+						self::escape_csv_field( (string) ( $row['link_url'] ?? '' ) ),
+						self::escape_csv_field( (string) ( $row['ip_address'] ?? '' ) ),
 						(string) ( $row['time_on_page'] ?? '' ),
 						(string) ( $row['scroll_depth'] ?? '' ),
 					)
@@ -1274,6 +1286,24 @@ final class WPA_Admin {
 
 		fclose( $out );
 		exit;
+	}
+
+	/**
+	 * Escape a CSV field against formula injection.
+	 *
+	 * Values starting with =, +, -, @ or tab/CR are interpreted as formulas
+	 * by Excel and similar tools, which can execute commands when the CSV
+	 * is opened. Visitor-controlled data (URLs, referrers) could contain
+	 * such payloads, so prefix them with a single quote to force text.
+	 *
+	 * @param string $value The field value.
+	 * @return string Escaped value safe for spreadsheet import.
+	 */
+	private static function escape_csv_field( string $value ): string {
+		if ( $value !== '' && in_array( $value[0], array( '=', '+', '-', '@', "\t", "\r" ), true ) ) {
+			return "'" . $value;
+		}
+		return $value;
 	}
 
 	/**
