@@ -916,6 +916,117 @@ final class WPA_Admin {
 					</tr>
 				</table>
 
+				<!-- Google Search Console Section -->
+				<?php $gsc_credentials = WPA_Database::get_gsc_credentials(); ?>
+				<h2><?php echo esc_html__( 'Google Search Console', 'wp-analytics' ); ?></h2>
+
+				<table class="form-table" role="presentation">
+					<tr>
+						<th scope="row">
+							<label for="gsc_property_url"><?php echo esc_html__( 'GSC Property URL', 'wp-analytics' ); ?></label>
+						</th>
+						<td>
+							<input
+								type="text"
+								name="gsc_property_url"
+								id="gsc_property_url"
+								value="<?php echo esc_attr( $gsc_credentials['property_url'] ); ?>"
+								class="regular-text"
+								placeholder="https://yourdomain.com/"
+							/>
+							<p class="description">
+								<?php echo esc_html__( 'Must match exactly as it appears in GSC, including trailing slash.', 'wp-analytics' ); ?>
+							</p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row">
+							<label for="gsc_client_id"><?php echo esc_html__( 'OAuth Client ID', 'wp-analytics' ); ?></label>
+						</th>
+						<td>
+							<input
+								type="text"
+								name="gsc_client_id"
+								id="gsc_client_id"
+								value="<?php echo esc_attr( $gsc_credentials['client_id'] ); ?>"
+								class="regular-text"
+							/>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row">
+							<label for="gsc_client_secret"><?php echo esc_html__( 'OAuth Client Secret', 'wp-analytics' ); ?></label>
+						</th>
+						<td>
+							<input
+								type="password"
+								name="gsc_client_secret"
+								id="gsc_client_secret"
+								value="<?php echo esc_attr( $gsc_credentials['client_secret'] ); ?>"
+								class="regular-text"
+								autocomplete="off"
+							/>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row">
+							<label for="gsc_refresh_token"><?php echo esc_html__( 'Refresh Token', 'wp-analytics' ); ?></label>
+						</th>
+						<td>
+							<input
+								type="password"
+								name="gsc_refresh_token"
+								id="gsc_refresh_token"
+								value="<?php echo esc_attr( $gsc_credentials['refresh_token'] ); ?>"
+								class="regular-text"
+								autocomplete="off"
+							/>
+							<p class="description">
+								<?php echo esc_html__( 'Get this from Google OAuth Playground using your client credentials and the webmasters.readonly scope.', 'wp-analytics' ); ?>
+							</p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row">
+							<?php echo esc_html__( 'Connection Test', 'wp-analytics' ); ?>
+						</th>
+						<td>
+							<button type="button" class="button" id="wpa-gsc-test-btn">
+								<?php echo esc_html__( 'Test GSC Connection', 'wp-analytics' ); ?>
+							</button>
+							<span id="wpa-gsc-test-result" style="margin-left: 10px;"></span>
+							<script>
+							document.getElementById('wpa-gsc-test-btn').addEventListener('click', function() {
+								var resultSpan = document.getElementById('wpa-gsc-test-result');
+								var btn = this;
+								btn.disabled = true;
+								resultSpan.textContent = '<?php echo esc_js( __( 'Testing...', 'wp-analytics' ) ); ?>';
+								resultSpan.style.color = '#666';
+
+								var token = document.getElementById('wpa-api-token').value;
+								fetch('<?php echo esc_url( rest_url( 'wp-analytics/v1/gsc-test' ) ); ?>?token=' + encodeURIComponent(token))
+									.then(function(response) { return response.json(); })
+									.then(function(data) {
+										btn.disabled = false;
+										if (data.success) {
+											resultSpan.style.color = '#46b450';
+											resultSpan.textContent = '<?php echo esc_js( __( 'Connected!', 'wp-analytics' ) ); ?> ' + data.property_url + ' (' + data.queries_found + ' <?php echo esc_js( __( 'queries', 'wp-analytics' ) ); ?>, ' + data.pages_found + ' <?php echo esc_js( __( 'pages', 'wp-analytics' ) ); ?>)';
+										} else {
+											resultSpan.style.color = '#dc3232';
+											resultSpan.textContent = data.message || '<?php echo esc_js( __( 'Connection failed', 'wp-analytics' ) ); ?>';
+										}
+									})
+									.catch(function(err) {
+										btn.disabled = false;
+										resultSpan.style.color = '#dc3232';
+										resultSpan.textContent = '<?php echo esc_js( __( 'Error:', 'wp-analytics' ) ); ?> ' + err.message;
+									});
+							});
+							</script>
+						</td>
+					</tr>
+				</table>
+
 				<?php submit_button( __( 'Save Settings', 'wp-analytics' ) ); ?>
 			</form>
 		</div>
@@ -964,6 +1075,16 @@ final class WPA_Admin {
 		// Save data retention
 		$retention_days = isset( $_POST['retention_days'] ) ? absint( $_POST['retention_days'] ) : 90;
 		WPA_Database::set_data_retention_days( $retention_days );
+
+		// Save GSC credentials
+		WPA_Database::set_gsc_credentials(
+			array(
+				'property_url'  => isset( $_POST['gsc_property_url'] ) ? sanitize_text_field( wp_unslash( $_POST['gsc_property_url'] ) ) : '',
+				'client_id'     => isset( $_POST['gsc_client_id'] ) ? sanitize_text_field( wp_unslash( $_POST['gsc_client_id'] ) ) : '',
+				'client_secret' => isset( $_POST['gsc_client_secret'] ) ? sanitize_text_field( wp_unslash( $_POST['gsc_client_secret'] ) ) : '',
+				'refresh_token' => isset( $_POST['gsc_refresh_token'] ) ? sanitize_text_field( wp_unslash( $_POST['gsc_refresh_token'] ) ) : '',
+			)
+		);
 
 		set_transient(
 			'wpa_admin_notice',
