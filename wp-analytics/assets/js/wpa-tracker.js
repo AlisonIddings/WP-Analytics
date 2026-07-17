@@ -169,11 +169,13 @@
   var pageviewId = 0;
   var sentFinal = false;
   var pendingClicks = [];
+  var pendingConversions = [];
   var pageHidden = false;
   var urlConversionSent = false;
 
   // Safety limits to prevent memory issues
   var MAX_PENDING_CLICKS = 20;
+  var MAX_PENDING_CONVERSIONS = 20;
   var MAX_TRACKED_CONVERSIONS = 100;
 
   // ==========================================================================
@@ -336,6 +338,14 @@
             pendingClicks = [];
           }
 
+          // Send any conversions that were clicked before pageview completed
+          if (pageviewId && pendingConversions.length) {
+            pendingConversions.forEach(function (conv) {
+              sendConversion(conv.type, conv.value);
+            });
+            pendingConversions = [];
+          }
+
           // Check for URL-based conversion (thank you page)
           checkUrlConversion();
 
@@ -471,6 +481,34 @@
   );
 
   // ==========================================================================
+  // CONVERSION TRACKING - SHARED
+  // ==========================================================================
+
+  /**
+   * Send a conversion event to the REST API.
+   *
+   * Uses keepalive so the request survives page navigation, which is
+   * critical for conversion buttons that submit forms or redirect.
+   *
+   * @param {string} type - Conversion type: "id", "class", or "url"
+   * @param {string} value - The matched selector or URL pattern
+   */
+  function sendConversion(type, value) {
+    postJson(
+      "/conversion",
+      {
+        token: settings.token,
+        pageview_id: pageviewId,
+        conversion_type: type,
+        conversion_value: value,
+        page_url: pageUrl,
+        session: sessionId,
+      },
+      true // keepalive/beacon - survives navigation
+    );
+  }
+
+  // ==========================================================================
   // CONVERSION TRACKING - URL-BASED (Thank You Pages)
   // ==========================================================================
 
@@ -496,20 +534,7 @@
 
     if (matchedPattern) {
       urlConversionSent = true;
-
-      // Send conversion event with URL type indicator
-      postJson(
-        "/conversion",
-        {
-          token: settings.token,
-          pageview_id: pageviewId,
-          conversion_type: "url",
-          conversion_value: matchedPattern,
-          page_url: pageUrl,
-          session: sessionId,
-        },
-        false
-      );
+      sendConversion("url", matchedPattern);
     }
   }
 
@@ -570,7 +595,7 @@
         }
 
         // Prevent duplicate tracking for same button in same pageview
-        var trackKey = pageviewId + "_" + matchType + "_" + matchedSelector;
+        var trackKey = matchType + "_" + matchedSelector;
         if (trackedConversions[trackKey]) {
           return;
         }
@@ -583,24 +608,22 @@
         trackedConversions[trackKey] = true;
         trackedConversionCount++;
 
-        // Wait for pageview ID
-        if (!pageviewId || !sessionId) {
+        // Session must exist to attribute the conversion
+        if (!sessionId) {
+          return;
+        }
+
+        // Pageview not created yet - queue the conversion so it is
+        // sent as soon as the pageview ID arrives instead of dropping it
+        if (!pageviewId) {
+          if (pendingConversions.length < MAX_PENDING_CONVERSIONS) {
+            pendingConversions.push({ type: matchType, value: matchedSelector });
+          }
           return;
         }
 
         // Send conversion event
-        postJson(
-          "/conversion",
-          {
-            token: settings.token,
-            pageview_id: pageviewId,
-            conversion_type: matchType,
-            conversion_value: matchedSelector,
-            page_url: pageUrl,
-            session: sessionId,
-          },
-          false
-        );
+        sendConversion(matchType, matchedSelector);
       },
       { capture: true, passive: true }
     );

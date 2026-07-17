@@ -110,18 +110,27 @@ final class WPA_GSC {
 	/**
 	 * Retrieve PageSpeed Insights data for a URL.
 	 *
+	 * Results are cached for 12 hours because a live PageSpeed run takes
+	 * 15-30 seconds, which would make every audit export unacceptably slow.
+	 *
 	 * @param string $url URL to analyze.
 	 * @return array<string, mixed> PageSpeed metrics or empty array on failure.
 	 */
 	public static function get_pagespeed_data( string $url ): array {
-		$api_url = add_query_arg(
-			array(
-				'url'      => rawurlencode( $url ),
-				'strategy' => 'mobile',
-				'category' => array( 'performance', 'accessibility' ),
-			),
-			self::PAGESPEED_ENDPOINT
-		);
+		$cache_key = 'wpa_pagespeed_' . md5( $url );
+		$cached    = get_transient( $cache_key );
+		if ( is_array( $cached ) && ! empty( $cached ) ) {
+			return $cached;
+		}
+
+		// Build query manually: the PSI API expects repeated category params
+		// (category=performance&category=accessibility), which add_query_arg
+		// cannot produce, and it url-encodes values itself.
+		$api_url = self::PAGESPEED_ENDPOINT
+			. '?url=' . rawurlencode( $url )
+			. '&strategy=mobile'
+			. '&category=performance'
+			. '&category=accessibility';
 
 		$response = wp_remote_get(
 			$api_url,
@@ -150,7 +159,7 @@ final class WPA_GSC {
 		$categories = $lighthouse['categories'] ?? array();
 		$audits     = $lighthouse['audits'] ?? array();
 
-		return array(
+		$result = array(
 			'performance_score'   => self::extract_score( $categories, 'performance' ),
 			'accessibility_score' => self::extract_score( $categories, 'accessibility' ),
 			'lcp'                 => self::extract_metric( $audits, 'largest-contentful-paint', 1000, 1 ),
@@ -158,6 +167,10 @@ final class WPA_GSC {
 			'fcp'                 => self::extract_metric( $audits, 'first-contentful-paint', 1000, 1 ),
 			'tbt'                 => (int) round( $audits['total-blocking-time']['numericValue'] ?? 0 ),
 		);
+
+		set_transient( $cache_key, $result, 12 * HOUR_IN_SECONDS );
+
+		return $result;
 	}
 
 	/**
